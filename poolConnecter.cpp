@@ -12,7 +12,7 @@ poolConnecter::poolConnecter()
 poolConnecter::poolConnecter(char* stratumUrl, char *stratUser, char *stratPass)
 {
 	retryCount=-1;
-    url=stratumUrl;
+	url=stratumUrl;
 	user=stratUser;
 	pass=stratPass;
 }
@@ -27,68 +27,68 @@ poolConnecter::~poolConnecter()
 
 int poolConnecter::sockKeepaliveCallback(void *userdata, curl_socket_t fd, curlsocktype purpose)
 {
-    int tcp_keepcnt = 3;
-    int tcp_keepintvl = 50;
+	int tcp_keepcnt = 3;
+	int tcp_keepintvl = 50;
 	int tcp_keepidle = 50;
-    int keepalive = 1;
+	int keepalive = 1;
 	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)))
 		return 1;
-    if (setsockopt(fd, SOL_TCP, TCP_KEEPCNT, &tcp_keepcnt, sizeof(tcp_keepcnt)))
+	if (setsockopt(fd, SOL_TCP, TCP_KEEPCNT, &tcp_keepcnt, sizeof(tcp_keepcnt)))
 		return 1;
 	if (setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &tcp_keepidle, sizeof(tcp_keepidle)))
 		return 1;
 	if (setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &tcp_keepintvl, sizeof(tcp_keepintvl)))
 		return 1;
-    return 0;
+	return 0;
 }
 
 curl_socket_t poolConnecter::opensockGrabCallback(void *clientp, curlsocktype purpose, struct curl_sockaddr *addr)
 {
-    curl_socket_t *sock = (curl_socket_t*) clientp;
+	curl_socket_t *sock = (curl_socket_t*) clientp;
 	*sock = socket(addr->family, addr->socktype, addr->protocol);
 	return *sock;
 }
 
 bool poolConnecter::stratumConnect()
 {
-    int rc;
-    if(curl)
-    {
-        curl_easy_cleanup(curl);
-    }
-    curl = curl_easy_init();
-    if(!curl)
-    {
-        return false;
-    }
-    if (!sockBuf) {
+	int rc;
+	if(curl)
+	{
+		curl_easy_cleanup(curl);
+	}
+	curl = curl_easy_init();
+	if(!curl)
+	{
+		return false;
+	}
+	if (!sockBuf) {
 		sockBuf = new char[RBUFSIZE];
 		sockBufSize = RBUFSIZE;
 	}
 	sockBuf[0] = '\0';
-    curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1);
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuf);
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
 	curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
-    curl_easy_setopt(curl, CURLOPT_HTTPPROXYTUNNEL, 1);
-    curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockKeepaliveCallback);
-    curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, opensockGrabCallback);
-    curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, sock);
-    curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 1);
-    rc = curl_easy_perform(curl);
+	curl_easy_setopt(curl, CURLOPT_HTTPPROXYTUNNEL, 1);
+	curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockKeepaliveCallback);
+	curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, opensockGrabCallback);
+	curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, sock);
+	curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 1);
+	rc = curl_easy_perform(curl);
 	if (rc) {
 		curl_easy_cleanup(curl);
 		curl = NULL;
 		return false;
 	}
-    return true;
+	return true;
 }
 
 bool poolConnecter::socketFull(int timeout)
 {
-    struct timeval tv;
+	struct timeval tv;
 	fd_set rd;
 
 	FD_ZERO(&rd);
@@ -102,7 +102,7 @@ bool poolConnecter::socketFull(int timeout)
 
 bool poolConnecter::sendLine(char *s)
 {
-    size_t sent = 0;
+	size_t sent = 0;
 	int len;
 
 	len = (int) strlen(s);
@@ -132,7 +132,7 @@ bool poolConnecter::sendLine(char *s)
 
 char* poolConnecter::receiveLine()
 {
-    ssize_t len, buflen;
+	ssize_t len, buflen;
 	char *tok, *sret = NULL;
 
 	if (!strstr(sockBuf, "\n")) {
@@ -159,17 +159,17 @@ char* poolConnecter::receiveLine()
 					break;
 				}
 			} else
-            {
-                size_t old, n;
-                old = strlen(sockBuf);
-                n = old + strlen(s) + 1;
-                if (n >= sockBufSize) {
-                    sockBufSize = n + (RBUFSIZE - (n % RBUFSIZE));
-                    delete[] sockBuf;
-                    sockBuf = new char[sockBufSize];
-                }
-                strcpy(sockBuf + old, s);
-            }
+			{
+				size_t old, n;
+				old = strlen(sockBuf);
+				n = old + strlen(s) + 1;
+				if (n >= sockBufSize) {
+					sockBufSize = n + (RBUFSIZE - (n % RBUFSIZE));
+					delete[] sockBuf;
+					sockBuf = new char[sockBufSize];
+				}
+				strcpy(sockBuf + old, s);
+			}
 		} while (time(NULL) - rstart < 60 && !strstr(sockBuf, "\n"));
 
 		if (!ret) {
@@ -189,7 +189,7 @@ char* poolConnecter::receiveLine()
 		memmove(sockBuf, sockBuf + len + 1, buflen - len + 1);
 	else
 		sockBuf[0] = '\0';
-    return sret;
+	return sret;
 }
 
 const char* poolConnecter::getStratumSessionId(json_t* val)
@@ -247,12 +247,12 @@ bool poolConnecter::getStratumExtranonce(json_t* val,int pndx)
 
 bool poolConnecter::stratumSubscribe()
 {
-    char *s, *sret = NULL;
-    bool ret = false;
+	char *s, *sret = NULL;
+	bool ret = false;
 	const char *sid;
 	json_t *val = NULL, *res_val, *err_val;
 	json_error_t err;
-    s = (char*) new char[128 + (sessionId ? strlen(sessionId) : 0)];
+	s = (char*) new char[128 + (sessionId ? strlen(sessionId) : 0)];
 	if (false)
 		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": []}");
 	else if (sessionId)
@@ -265,13 +265,13 @@ bool poolConnecter::stratumSubscribe()
 		return false;
 	}
 	delete[] s;
-    if (!socketFull(30)) {
+	if (!socketFull(30)) {
 		return false;
 	}
-    sret = receiveLine();
+	sret = receiveLine();
 	if (!sret) {
 		return false;
-    }
+	}
 	val = json_loads(sret, 0, &err);
 	free(sret);
 	if (!val) {
@@ -384,8 +384,8 @@ bool poolConnecter::stratumNotify(json_t *params)
 	clean = json_is_true(json_array_get(params, p));
 
 	if (!job_id || !prevhash || !coinb1 || !coinb2 || !version || !nbits || !ntime ||
-	    strlen(prevhash) != 64 || strlen(version) != 8 ||
-	    strlen(nbits) != 8 || strlen(ntime) != 8) {
+		strlen(prevhash) != 64 || strlen(version) != 8 ||
+		strlen(nbits) != 8 || strlen(ntime) != 8) {
 		//applog(LOG_ERR, "Stratum notify: invalid parameters");
 		return false;
 	}
@@ -402,7 +402,6 @@ bool poolConnecter::stratumNotify(json_t *params)
 		merkle[i] = new unsigned char[32];
 		hex2bin(merkle[i], s, 32);
 	}
-
 	coinb1_size = strlen(coinb1) / 2;
 	coinb2_size = strlen(coinb2) / 2;
 	coinbaseSize = coinb1_size + xnonce1Size + xnonce2Size + coinb2_size;
@@ -420,11 +419,8 @@ bool poolConnecter::stratumNotify(json_t *params)
 	free(jobId);
 	jobId = strdup(job_id);
 	hex2bin(prevHash, prevhash, 32);
-
 	if (has_claim) hex2bin(jClaim, claim, 32);
-
 	blockHeight = getblocheight();
-
 	for (i = 0; i < merkleCount; i++)
 		delete[] jMerkle[i];
 	delete[] jMerkle;
