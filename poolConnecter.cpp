@@ -1,16 +1,25 @@
+#include<unistd.h>
+#include<netinet/tcp.h>
+#include<string.h>
+#include<errno.h>
 #include"poolConnecter.hpp"
+#include"applog.hpp"
 
 poolConnecter::poolConnecter()
 {
+	acceptedCount=0; rejectedCount=0;
+	memset(rpc2Target, 0xff, sizeof(rpc2Target));
 	retryCount=-1;
 	url=new char[50];
-	strcpy(url,"stratum+tcp://killallasics.moneroworld.com:5555");
+	strcpy(url,"http://killallasics.moneroworld.com:5555");
 	user=new char[100];
 	strcpy(user,"9v4vTVwqZzfjCFyPi7b9Uv1hHntJxycC4XvRyEscqwtq8aycw5xGpTxFyasurgf2KRBfbdAJY4AVcemL1JCegXU4EZfMtaz");
 }
 
 poolConnecter::poolConnecter(char* stratumUrl, char *stratUser, char *stratPass)
 {
+	acceptedCount=0; rejectedCount=0;
+	memset(rpc2Target, 0xff, sizeof(rpc2Target));
 	retryCount=-1;
 	url=stratumUrl;
 	user=stratUser;
@@ -54,6 +63,7 @@ bool poolConnecter::stratumConnect()
 	int rc;
 	if(curl)
 	{
+		applog::log(LOG_ERR, "CURL initialization failed");
 		curl_easy_cleanup(curl);
 	}
 	curl = curl_easy_init();
@@ -75,10 +85,12 @@ bool poolConnecter::stratumConnect()
 	curl_easy_setopt(curl, CURLOPT_HTTPPROXYTUNNEL, 1);
 	curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockKeepaliveCallback);
 	curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, opensockGrabCallback);
-	curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, sock);
+	curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, &sock);
 	curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 1);
 	rc = curl_easy_perform(curl);
 	if (rc) {
+		applog::log(LOG_ERR, "Stratum connection failed: ");
+		applog::log(LOG_ERR, errorBuf);
 		curl_easy_cleanup(curl);
 		curl = NULL;
 		return false;
@@ -141,6 +153,7 @@ char* poolConnecter::receiveLine()
 
 		time(&rstart);
 		if (!socketFull(60)) {
+			applog::log(LOG_ERR, "stratum_recv_line timed out");
 			return sret;
 		}
 		do {
@@ -173,6 +186,7 @@ char* poolConnecter::receiveLine()
 		} while (time(NULL) - rstart < 60 && !strstr(sockBuf, "\n"));
 
 		if (!ret) {
+			applog::log(LOG_ERR, "stratum_recv_line failed");
 			return sret;
 		}
 	}
@@ -180,6 +194,7 @@ char* poolConnecter::receiveLine()
 	buflen = (ssize_t) strlen(sockBuf);
 	tok = strtok(sockBuf, "\n");
 	if (!tok) {
+		//applog(LOG_ERR, "stratum_recv_line failed to parse a newline-terminated string");
 		return sret;
 	}
 	sret = strdup(tok);
@@ -223,13 +238,16 @@ bool poolConnecter::getStratumExtranonce(json_t* val,int pndx)
 
 	xn1 = json_string_value(json_array_get(val, pndx));
 	if (!xn1) {
+		applog::log(LOG_ERR, "Failed to get extranonce1");
 		return false;
 	}
 	xn2Size = (int) json_integer_value(json_array_get(val, pndx+1));
 	if (!xn2Size) {
+		applog::log(LOG_ERR, "Failed to get extranonce2_size");
 		return false;
 	}
 	if (xn2Size < 2 || xn2Size > 16) {
+		applog::log(LOG_INFO, "Failed to get valid n2size in parse_extranonce");
 		return false;
 	}
 	if (xnonce1)
@@ -237,11 +255,12 @@ bool poolConnecter::getStratumExtranonce(json_t* val,int pndx)
 	xnonce1Size = strlen(xn1) / 2;
 	xnonce1 = (unsigned char*) calloc(1, xnonce1Size);
 	if (!xnonce1) {
+		applog::log(LOG_ERR, "Failed to alloc xnonce1");
 		return false;
 	}
 	hex2bin(xnonce1, xn1, xnonce1Size);
-
 	xnonce2Size = xn2Size;
+	//some debug log for pool dynamic change
 	return true;
 }
 
@@ -252,6 +271,10 @@ bool poolConnecter::stratumSubscribe()
 	const char *sid;
 	json_t *val = NULL, *res_val, *err_val;
 	json_error_t err;
+
+	if (jsonrpc2)
+		return true;
+
 	s = (char*) new char[128 + (sessionId ? strlen(sessionId) : 0)];
 	if (false)
 		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": []}");
@@ -261,35 +284,53 @@ bool poolConnecter::stratumSubscribe()
 		sprintf(s, "{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": [\"" USER_AGENT "\"]}");
 
 	if (!sendLine(s)) { //there was a mutex but no idea why
+		applog::log(LOG_ERR, "stratum_subscribe send failed");
 		delete[] s;
 		return false;
 	}
 	delete[] s;
 	if (!socketFull(30)) {
+		applog::log(LOG_ERR, "stratum_subscribe timed out");
 		return false;
 	}
 	sret = receiveLine();
 	if (!sret) {
+		//was not log in the real
 		return false;
 	}
 	val = json_loads(sret, 0, &err);
 	free(sret);
 	if (!val) {
+		s=new char[220];
+		sprintf(s, "JSON decode failed(%d): %s", err.line, err.text);
+		applog::log(LOG_ERR, s);
+		delete[] s;
 		return false;
 	}
 	res_val = json_object_get(val, "result");
 	err_val = json_object_get(val, "error");
 	json_decref(val);
 	if (!res_val || json_is_null(res_val) || (err_val && !json_is_null(err_val))) {
+		if(true){	//retry in original
+			if (err_val)
+				s = json_dumps(err_val, JSON_INDENT(3));
+			else
+				s = strdup("(unknown reason)");
+			applog::log(LOG_ERR, "JSON-RPC call failed: ");
+			applog::log(LOG_ERR, s);
+			free(s);
+		}
 		return false;
 	}
 	sid = getStratumSessionId(res_val);
+	//here is a debug log just for log the sessionId
 	if(sessionId){
 		free(sessionId);
 	}
 	sessionId = sid ? strdup(sid) : NULL;
 	nextDiff = 1.0;
 	if (!getStratumExtranonce(res_val, 1)) {
+		//there is no applog here
 		return false;
 	}
 	return true;
@@ -333,14 +374,15 @@ bool poolConnecter::hex2bin(unsigned char *p, const char *hexstr, size_t len)
 
 	while (*hexstr && len) {
 		if (!hexstr[1]) {
-			//applog(LOG_ERR, "hex2bin str truncated");
+			applog::log(LOG_ERR, "hex2bin str truncated");
 			return false;
 		}
 		hex_byte[0] = hexstr[0];
 		hex_byte[1] = hexstr[1];
 		*p = (unsigned char) strtol(hex_byte, &ep, 16);
 		if (*ep) {
-			//applog(LOG_ERR, "hex2bin failed on '%s'", hex_byte);
+			applog::log(LOG_ERR, "hex2bin failed on ");
+			applog::log(LOG_ERR, hex_byte);
 			return false;
 		}
 		p++;
@@ -367,7 +409,7 @@ bool poolConnecter::stratumNotify(json_t *params)
 	if (has_claim) {
 		claim = json_string_value(json_array_get(params, p++));
 		if (!claim || strlen(claim) != 64) {
-			//applog(LOG_ERR, "Stratum notify: invalid claim parameter");
+			applog::log(LOG_ERR, "Stratum notify: invalid claim parameter");
 			return false;
 		}
 	}
@@ -386,7 +428,7 @@ bool poolConnecter::stratumNotify(json_t *params)
 	if (!job_id || !prevhash || !coinb1 || !coinb2 || !version || !nbits || !ntime ||
 		strlen(prevhash) != 64 || strlen(version) != 8 ||
 		strlen(nbits) != 8 || strlen(ntime) != 8) {
-		//applog(LOG_ERR, "Stratum notify: invalid parameters");
+		applog::log(LOG_ERR, "Stratum notify: invalid parameters");
 		return false;
 	}
 	merkle = new unsigned char*[merkle_count * sizeof(char *)];
@@ -396,7 +438,7 @@ bool poolConnecter::stratumNotify(json_t *params)
 			while (i--)
 				delete[] merkle[i];
 			delete[] merkle;
-			//applog(LOG_ERR, "Stratum notify: invalid Merkle branch");
+			applog::log(LOG_ERR, "Stratum notify: invalid Merkle branch");
 			return false;
 		}
 		merkle[i] = new unsigned char[32];
@@ -465,6 +507,27 @@ bool poolConnecter::stratumStats(json_t *id, json_t *params)
 	return ret;
 }
 
+int poolConnecter::shareResult(int result, const char *reason)
+{
+	char suppl[32] = { 0 };
+	char s[345];
+	int i;
+	result ? acceptedCount++ : rejectedCount++;
+	//global_hashrate = (uint64_t) hashrate;
+	sprintf(suppl, "%.2f%%", 100. * acceptedCount / (acceptedCount + rejectedCount));
+	sprintf(s, "accepted: %lu/%lu (%s), %s kH/s %s", acceptedCount, acceptedCount + rejectedCount, suppl, "(some Hashrateinfo)");
+	applog::log(LOG_NOTICE, s);
+	if (reason) {
+		applog::log(LOG_WARNING, "reject reason:");
+		applog::log(LOG_WARNING, reason);
+		if (0 && strncmp(reason, "low difficulty share", 20) == 0) {
+			applog::log(LOG_WARNING, "factor reduced to : (2/3)-hardcoded");
+			return 0;
+		}
+	}
+	return 1;
+}
+
 bool poolConnecter::handleStratumResponse(char* buf)
 {
 	json_t *val, *err_val, *res_val, *id_val;
@@ -473,7 +536,10 @@ bool poolConnecter::handleStratumResponse(char* buf)
 
 	val = json_loads(buf, 0, &err);
 	if (!val) {
-		//applog(LOG_INFO, "JSON decode failed(%d): %s", err.line, err.text);
+		char *s=new char[220];
+		sprintf(s, "JSON decode failed(%d): %s", err.line, err.text);
+		applog::log(LOG_INFO, s);
+		delete[] s;
 		return false;
 	}
 
@@ -484,15 +550,144 @@ bool poolConnecter::handleStratumResponse(char* buf)
 
 	if (!id_val || json_is_null(id_val))
 		return false;
-	if (!res_val || json_integer_value(id_val) < 4)
-		return false;
-	valid = json_is_true(res_val);
-	//share_result(valid, NULL, err_val ? json_string_value(json_array_get(err_val, 1)) : NULL);
-	//log some reject/share info
+	if(jsonrpc2) {
+		if (!res_val && !err_val)
+			return false;
+		json_t *status = json_object_get(res_val, "status");
+		if(status) {
+			const char *s = json_string_value(status);
+			valid = !strcmp(s, "OK") && json_is_null(err_val);
+		} else {
+			valid = json_is_null(err_val);
+		}
+		shareResult(valid, err_val ? json_string_value(err_val) : NULL);
+	}
+	else {
+		if (!res_val || json_integer_value(id_val) < 4)
+			return false;
+		valid = json_is_true(res_val);
+		shareResult(valid, err_val ? json_string_value(json_array_get(err_val, 1)) : NULL);
+	}
 	return true;
 }
 
-bool poolConnecter::handleStratumMessage(const char* s)
+bool poolConnecter::rpc2LoginDecode(const json_t *val)
+{
+	const char *id;
+	const char *s;
+
+	json_t *res = json_object_get(val, "result");
+	if(!res) {
+		applog::log(LOG_ERR, "JSON invalid result");
+		return false;
+	}
+
+	json_t *tmp;
+	tmp = json_object_get(res, "id");
+	if(!tmp) {
+		applog::log(LOG_ERR, "JSON inval id");
+		return false;
+	}
+	id = json_string_value(tmp);
+	if(!id) {
+		applog::log(LOG_ERR, "JSON id is not a string");
+		return false;
+	}
+
+	memcpy(&rpc2Id, id, 64);
+
+	tmp = json_object_get(res, "status");
+	if(!tmp) {
+		applog::log(LOG_ERR, "JSON inval status");
+		return false;
+	}
+	s = json_string_value(tmp);
+	if(!s) {
+		applog::log(LOG_ERR, "JSON status is not a string");
+		return false;
+	}
+	if(strcmp(s, "OK")) {
+		applog::log(LOG_ERR, "JSON returned status: ");
+		applog::log(LOG_ERR, s);
+		return false;
+	}
+
+	return true;
+}
+
+bool poolConnecter::rpc2JobDecode(const json_t *params)
+{
+	if (!jsonrpc2) {
+		applog::log(LOG_ERR, "Tried to decode job without JSON-RPC 2.0");
+		return false;
+	}
+	json_t *tmp;
+	tmp = json_object_get(params, "job_id");
+	if (!tmp) {
+		applog::log(LOG_ERR, "JSON invalid job id");
+		return false;
+	}
+	const char *job_id = json_string_value(tmp);
+	tmp = json_object_get(params, "blob");
+	if (!tmp) {
+		applog::log(LOG_ERR, "JSON invalid blob");
+		return false;
+	}
+	const char *hexblob = json_string_value(tmp);
+	size_t blobLen = strlen(hexblob);
+	if (blobLen % 2 != 0 || ((blobLen / 2) < 40 && blobLen != 0) || (blobLen / 2) > 128) {
+		applog::log(LOG_ERR, "JSON invalid blob length");
+		return false;
+	}
+	if (blobLen != 0) {
+		uint32_t target = 0;
+		unsigned char *blob = new unsigned char[blobLen / 2];
+		if (!hex2bin(blob, hexblob, blobLen / 2)) {
+			applog::log(LOG_ERR, "JSON invalid blob");
+			return false;
+		}
+		rpc2Bloblen = blobLen / 2;
+		if (rpc2Blob) delete[] rpc2Blob;
+		rpc2Blob = new char[rpc2Bloblen];
+		if (!rpc2Blob)  {
+			applog::log(LOG_ERR, "RPC2 Out of Memory!");
+			return false;
+		}
+		memcpy(rpc2Blob, blob, blobLen / 2);
+		delete[] blob;
+
+		const char *hexstr;
+		tmp = json_object_get(params, "target");
+		if (!tmp) {
+			applog::log(LOG_ERR, "JSON key 'target' not found");
+			return false;
+		}
+		hexstr = json_string_value(tmp);
+		if (!hexstr) {
+			applog::log(LOG_ERR, "JSON key 'target' is not a string");
+			return false;
+		}
+		if (!hex2bin((unsigned char*) &target, hexstr, 4))
+			return false;
+		
+		if(rpc2Target[7] != target) {
+			double hashrate = 0.0;
+			double difficulty = (((double) 0xffffffff) / target);
+			//if (!opt_quiet) {
+				// xmr pool diff can change a lot...
+			//	applog(LOG_WARNING, "Stratum difficulty set to %g", difficulty);
+			//}
+			stratumDiff = difficulty;
+			rpc2Target[7] = target;
+		}
+
+		if (rpc2JobId) free(rpc2JobId);
+		rpc2JobId = strdup(job_id);
+	}
+	return true;
+}
+
+bool poolConnecter::handleStratumMethod(const char* s)
 {
 	json_t *val, *id, *params, *valT;
 	json_error_t err;
@@ -501,6 +696,10 @@ bool poolConnecter::handleStratumMessage(const char* s)
 
 	val = json_loads(s, 0, &err);
 	if (!val) {
+		char* s=new char[220];
+		sprintf(s, "JSON decode failed(%d): %s", err.line, err.text);
+		applog::log(LOG_ERR, s);
+		delete[] s;
 		return false;
 	}
 	method = json_string_value(json_object_get(val, "method"));
@@ -511,6 +710,14 @@ bool poolConnecter::handleStratumMessage(const char* s)
 	params = json_object_get(val, "params");
 	id = json_object_get(val, "id");
 	json_decref(val);
+
+	if (jsonrpc2) {
+		if (!strcasecmp(method, "job")) {
+			return rpc2JobDecode(params);
+		}
+		return false;
+	}
+
 	if (!strcasecmp(method, "mining.notify")) {
 		return(stratumNotify(params));
 	}
@@ -550,11 +757,13 @@ bool poolConnecter::handleStratumMessage(const char* s)
 		urlT = new char[32 + strlen(host)];
 		sprintf(urlT, "stratum+tcp://%s:%d", host, port);
 		if (false) {//no-redirect option in the original
-			//applog(LOG_INFO, "Ignoring request to reconnect to %s", url);
+			applog::log(LOG_INFO, "Ignoring request to reconnect to ");
+			applog::log(LOG_INFO, url);
 			delete[] urlT;
 			return true;
 		}
-		//applog(LOG_NOTICE, "Server requested reconnection to %s", url);
+		applog::log(LOG_NOTICE, "Server requested reconnection to ");
+		applog::log(LOG_NOTICE, url);
 		delete[] url;
 		url = urlT;
 		if (curl) {
@@ -607,8 +816,10 @@ bool poolConnecter::handleStratumMessage(const char* s)
 	else if (!strcasecmp(method, "client.show_message")) {
 		char *s;
 		valT = json_array_get(params, 0);
-		//if (valT)//TODO: reason for this part
-		//	applog(LOG_NOTICE, "MESSAGE FROM SERVER: %s", json_string_value(valT));
+		if (valT) {
+			applog::log(LOG_NOTICE, "MESSAGE FROM SERVER:");
+			applog::log(LOG_NOTICE, json_string_value(valT));
+		}
 		if (!id || json_is_null(id))
 			return true;
 		valT = json_object();
@@ -648,12 +859,20 @@ bool poolConnecter::stratumAuthorize()
 	int req_id = 0;
 	json_error_t err;
 	size_t userLength=0,passLength=0;
-	while(user[userLength] != '\0')
-		userLength++;
-	while(pass[passLength] != '\0')
-		passLength++;
-	s = new char[80 + userLength + passLength];
-	sprintf(s, "{\"id\": 2, \"method\": \"mining.authorize\", \"params\": [\"%s\", \"%s\"]}", user, pass);
+	if(user)
+		while(user[userLength] != '\0')
+			userLength++;
+	if(pass)
+		while(pass[passLength] != '\0')
+			passLength++;
+
+	if (jsonrpc2) {
+		s = new char[300 + userLength + passLength];
+		sprintf(s, "{\"method\": \"login\", \"params\": {\"login\": \"%s\", \"pass\": \"%s\", \"agent\": \"%s\"}, \"id\": 1}", user, pass, USER_AGENT);
+	} else {
+		s = new char[80 + userLength + passLength];
+		sprintf(s, "{\"id\": 2, \"method\": \"mining.authorize\", \"params\": [\"%s\", \"%s\"]}", user, pass);
+	}
 	if (!sendLine(s)) { //there was a mutex but no idea why
 		delete[] s;
 		return false;
@@ -663,14 +882,17 @@ bool poolConnecter::stratumAuthorize()
 		sret = receiveLine();
 		if (!sret)
 			return false;
-		if (!handleStratumMessage(sret))
+		if (!handleStratumMethod(sret))
 			break;
 		free(sret);
 	}
 	val = json_loads(sret, 0, &err);
 	free(sret);
 	if (!val) {
-		//applog(LOG_ERR, "JSON decode failed(%d): %s", err.line, err.text);
+		s=new char[220];
+		sprintf(s, "JSON decode failed(%d): %s", err.line, err.text);
+		applog::log(LOG_ERR, s);
+		delete[] s;
 		return false;
 	}
 	res_val = json_object_get(val, "result");
@@ -680,9 +902,16 @@ bool poolConnecter::stratumAuthorize()
 		json_decref(val);
 
 	if (req_id == 2 && (!res_val || json_is_false(res_val) || (err_val && !json_is_null(err_val)))) {
-		//applog(LOG_ERR, "Stratum authentication failed");
+		applog::log(LOG_ERR, "Stratum authentication failed");
 		return false;
 	}
+	if (jsonrpc2) {
+		rpc2LoginDecode(val);
+		json_t *job_val = json_object_get(res_val, "job");
+		if(job_val)
+			rpc2JobDecode(job_val);
+	}
+
 	s = new char[80];
 	sprintf(s, "{\"id\": 3, \"method\": \"mining.extranonce.subscribe\", \"params\": []}");
 	if (!sendLine(s)){
@@ -699,12 +928,15 @@ bool poolConnecter::stratumAuthorize()
 	if (sret) {
 		json_t *extra = json_loads(sret, 0, &err);
 		if (!extra) {
-			//applog(LOG_WARNING, "JSON decode failed(%d): %s", err.line, err.text);
+			s=new char[220];
+			sprintf(s, "JSON decode failed(%d): %s", err.line, err.text);
+			applog::log(LOG_WARNING, s);
+			delete[] s;
 		} else {
 			if (json_integer_value(json_object_get(extra, "id")) != 3) {
 				// we receive a standard method if extranonce is ignored
-				if (!handleStratumMessage(sret)){
-					//applog(LOG_WARNING, "Stratum answer id is not correct!");
+				if (!handleStratumMethod(sret)){
+					applog::log(LOG_WARNING, "Stratum answer id is not correct!");
 				}
 			}
 			json_decref(extra);
@@ -716,9 +948,9 @@ bool poolConnecter::stratumAuthorize()
 
 void* poolConnecter::poolMainMethod()
 {
-	//I did not copy the jsonRpc2 code
 	char *s;
 	int failures;
+	jsonrpc2=false;
 	while(1){
 		failures=0;
 		while (!curl) {
@@ -729,11 +961,11 @@ void* poolConnecter::poolMainMethod()
 					sockBuf[0] = '\0';
 				}
 				if (retryCount >= 0 && ++failures > retryCount) {
-					//applog(LOG_ERR, "...terminating workio thread");
+					applog::log(LOG_ERR, "...terminating workio thread");
 					//tq_push(thr_info[work_thr_id].q, NULL);
 					return NULL;
 				}
-				//applog(LOG_ERR, "...retry after %d seconds", opt_fail_pause);
+				applog::log(LOG_ERR, "...retry after 10 seconds");
 				sleep(10);
 			}
 		}
@@ -741,7 +973,7 @@ void* poolConnecter::poolMainMethod()
 		//i skipped a big if cuz i had no idea what it does
 
 		if (!socketFull(300)) {
-			//applog(LOG_ERR, "Stratum connection timeout");
+			applog::log(LOG_ERR, "Stratum connection timeout");
 			s = NULL;
 		} else
 			s = receiveLine();
@@ -751,10 +983,10 @@ void* poolConnecter::poolMainMethod()
 				curl = NULL;
 				sockBuf[0] = '\0';
 			}
-			//applog(LOG_ERR, "Stratum connection interrupted");
+			applog::log(LOG_ERR, "Stratum connection interrupted");
 			continue;
 		}
-		if (!handleStratumMessage(s)){
+		if (!handleStratumMethod(s)){
 			handleStratumResponse(s);
 		}
 		free(s);
