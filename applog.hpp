@@ -2,6 +2,7 @@
 #define APPLOG_H
 
 #include<pthread.h>
+#include<fstream>
 
 enum {
 	LOG_ERR,
@@ -16,6 +17,7 @@ enum {
 class applog
 {
 public:
+	static std::ofstream logFile;
     static pthread_mutex_t applogLock;
     static void log(int prio, const char *msg);
     static void init();
