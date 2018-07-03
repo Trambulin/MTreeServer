@@ -3,13 +3,14 @@
 #include"jobManager.hpp"
 #include"applog.hpp"
 
-std::vector<poolConnecter> jobManager::pools;
+std::vector<poolConnecter*> jobManager::pools;
+std::vector<pthread_t> jobManager::poolThreads;
 std::vector<clientConnecter*> jobManager::clients;
 std::vector<pthread_t> jobManager::clientThreads;
 
 void *jobManager::startClientListen(void *port)
 {
-    int sockfd, newsockfd;
+    int sockfd, newsockfd, n;
     int *sockPort=(int*)port;
     struct sockaddr_in serv_addr, cli_addr;
     socklen_t clilen;
@@ -33,17 +34,38 @@ void *jobManager::startClientListen(void *port)
             applog::log(LOG_ERR,"ERROR on client accept");
         }
         clients.push_back(new clientConnecter(newsockfd, cli_addr.sin_addr.s_addr));
-        int n;
         pthread_t pth;
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         n = pthread_create(&pth, &attr, clientConnecter::initClient, clients.back());
         pthread_attr_destroy(&attr);
         if(n) {
+            clientConnecter *deleter=clients.back();
+            delete deleter;
             clients.pop_back();
             applog::log(LOG_ERR,"client thread create failed");
             continue;
         }
         clientThreads.push_back(pth);
     }
+}
+
+bool jobManager::startNewPoolConnection(char *url, char *user, char *pass)
+{
+    int n;
+    pthread_t pth;
+    pthread_attr_t attr;
+    poolConnecter *somePool;
+    somePool = new poolConnecter(url, user, pass);
+    pthread_attr_init(&attr);
+    n = pthread_create(&pth, &attr, poolConnecter::poolMainMethod, somePool);
+    pthread_attr_destroy(&attr);
+    if(n) {
+        delete somePool;
+        applog::log(LOG_ERR,"client thread create failed");
+        return false;
+    }
+    pools.push_back(somePool);
+    poolThreads.push_back(pth);
+    return true;
 }

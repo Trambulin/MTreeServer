@@ -62,7 +62,7 @@ public:
     poolConnecter(char *stratumUrl, char *startUser, char *startPass);
     ~poolConnecter();
 
-    void* poolMainMethod();
+    static void* poolMainMethod(void *poolConnObject);
 };
 
 #endif

@@ -8,17 +8,22 @@
 poolConnecter::poolConnecter()
 {
 	acceptedCount=0; rejectedCount=0;
+	curl=NULL; sockBuf=NULL; rpc2Blob=NULL; rpc2JobId=NULL;
+	jsonrpc2=true;
 	memset(rpc2Target, 0xff, sizeof(rpc2Target));
 	retryCount=-1;
 	url=new char[50];
 	strcpy(url,"http://killallasics.moneroworld.com:5555");
 	user=new char[100];
 	strcpy(user,"9v4vTVwqZzfjCFyPi7b9Uv1hHntJxycC4XvRyEscqwtq8aycw5xGpTxFyasurgf2KRBfbdAJY4AVcemL1JCegXU4EZfMtaz");
+	pass=NULL;
 }
 
 poolConnecter::poolConnecter(char* stratumUrl, char *stratUser, char *stratPass)
 {
 	acceptedCount=0; rejectedCount=0;
+	curl=NULL; sockBuf=NULL; sessionId=NULL; xnonce1=NULL; coinbase=NULL; jMerkle=NULL;
+	jsonrpc2=false;
 	memset(rpc2Target, 0xff, sizeof(rpc2Target));
 	retryCount=-1;
 	url=stratumUrl;
@@ -309,7 +314,6 @@ bool poolConnecter::stratumSubscribe()
 	}
 	res_val = json_object_get(val, "result");
 	err_val = json_object_get(val, "error");
-	json_decref(val);
 	if (!res_val || json_is_null(res_val) || (err_val && !json_is_null(err_val))) {
 		if(true){	//retry in original
 			if (err_val)
@@ -320,6 +324,7 @@ bool poolConnecter::stratumSubscribe()
 			applog::log(LOG_ERR, s);
 			free(s);
 		}
+		json_decref(val);
 		return false;
 	}
 	sid = getStratumSessionId(res_val);
@@ -331,8 +336,10 @@ bool poolConnecter::stratumSubscribe()
 	nextDiff = 1.0;
 	if (!getStratumExtranonce(res_val, 1)) {
 		//there is no applog here
+		json_decref(val);
 		return false;
 	}
+	json_decref(val);
 	return true;
 	//there is one retry try in the original if it fails.
 }
@@ -431,7 +438,7 @@ bool poolConnecter::stratumNotify(json_t *params)
 		applog::log(LOG_ERR, "Stratum notify: invalid parameters");
 		return false;
 	}
-	merkle = new unsigned char*[merkle_count * sizeof(char *)];
+	merkle = new unsigned char*[merkle_count/* * sizeof(char *)*/];
 	for (i = 0; i < merkle_count; i++) {
 		const char *s = json_string_value(json_array_get(merkle_arr, i));
 		if (!s || strlen(s) != 64) {
@@ -465,7 +472,8 @@ bool poolConnecter::stratumNotify(json_t *params)
 	blockHeight = getblocheight();
 	for (i = 0; i < merkleCount; i++)
 		delete[] jMerkle[i];
-	delete[] jMerkle;
+	if(jMerkle)
+		delete[] jMerkle;
 	jMerkle = merkle;
 	merkleCount = merkle_count;
 
@@ -546,13 +554,16 @@ bool poolConnecter::handleStratumResponse(char* buf)
 	res_val = json_object_get(val, "result");
 	err_val = json_object_get(val, "error");
 	id_val = json_object_get(val, "id");
-	json_decref(val);
 
-	if (!id_val || json_is_null(id_val))
+	if (!id_val || json_is_null(id_val)){
+		json_decref(val);
 		return false;
+	}
 	if(jsonrpc2) {
-		if (!res_val && !err_val)
+		if (!res_val && !err_val){
+			json_decref(val);
 			return false;
+		}
 		json_t *status = json_object_get(res_val, "status");
 		if(status) {
 			const char *s = json_string_value(status);
@@ -563,11 +574,14 @@ bool poolConnecter::handleStratumResponse(char* buf)
 		shareResult(valid, err_val ? json_string_value(err_val) : NULL);
 	}
 	else {
-		if (!res_val || json_integer_value(id_val) < 4)
+		if (!res_val || json_integer_value(id_val) < 4){
+			json_decref(val);
 			return false;
+		}
 		valid = json_is_true(res_val);
 		shareResult(valid, err_val ? json_string_value(json_array_get(err_val, 1)) : NULL);
 	}
+	json_decref(val);
 	return true;
 }
 
@@ -709,17 +723,20 @@ bool poolConnecter::handleStratumMethod(const char* s)
 	}
 	params = json_object_get(val, "params");
 	id = json_object_get(val, "id");
-	json_decref(val);
 
 	if (jsonrpc2) {
 		if (!strcasecmp(method, "job")) {
-			return rpc2JobDecode(params);
+			ret = rpc2JobDecode(params);
+			json_decref(val);
+			return ret;
 		}
 		return false;
 	}
 
 	if (!strcasecmp(method, "mining.notify")) {
-		return(stratumNotify(params));
+		ret = stratumNotify(params);
+		json_decref(val);
+		return ret;
 	}
 	else if (!strcasecmp(method, "mining.ping")) { // cgminer 4.7.1+
 		//if (opt_debug) applog(LOG_DEBUG, "Pool ping");
@@ -728,7 +745,8 @@ bool poolConnecter::handleStratumMethod(const char* s)
 			return false;
 		sprintf(buf, "{\"id\":%d,\"result\":\"pong\",\"error\":null}",
 			(int) json_integer_value(id));
-		return(sendLine(buf));
+		json_decref(val);
+		return sendLine(buf);
 	}
 	else if (!strcasecmp(method, "mining.set_difficulty")) {
 		double diff;
@@ -736,10 +754,13 @@ bool poolConnecter::handleStratumMethod(const char* s)
 		if (diff == 0)
 			return false;
 		nextDiff = diff;
+		json_decref(val);
 		return true;
 	}
 	else if (!strcasecmp(method, "mining.set_extranonce")) {
-		return(getStratumExtranonce(params, 0));
+		ret = getStratumExtranonce(params, 0);
+		json_decref(val);
+		return ret;
 	}
 	else if (!strcasecmp(method, "client.reconnect")) {
 		json_t *port_val;
@@ -752,10 +773,13 @@ bool poolConnecter::handleStratumMethod(const char* s)
 			port = atoi(json_string_value(port_val));
 		else
 			port = (int) json_integer_value(port_val);
-		if (!host || !port)
+		if (!host || !port){
+			json_decref(val);
 			return false;
+		}
 		urlT = new char[32 + strlen(host)];
 		sprintf(urlT, "stratum+tcp://%s:%d", host, port);
+		json_decref(val);
 		if (false) {//no-redirect option in the original
 			applog::log(LOG_INFO, "Ignoring request to reconnect to ");
 			applog::log(LOG_INFO, url);
@@ -792,12 +816,15 @@ bool poolConnecter::handleStratumMethod(const char* s)
 		s = json_dumps(valT, 0);
 		ret = sendLine(s);
 		json_decref(valT);
+		json_decref(val);
 		free(s);
 		return ret;
 	}
 	else if (!strcasecmp(method, "client.get_stats")) {
 		// optional to fill device benchmarks
-		return stratumStats(id, params); //send error back
+		ret = stratumStats(id, params);
+		json_decref(val);
+		return ret; //send error back
 	}
 	else if (!strcasecmp(method, "client.get_version")) {
 		char *s;
@@ -810,6 +837,7 @@ bool poolConnecter::handleStratumMethod(const char* s)
 		s = json_dumps(valT, 0);
 		ret = sendLine(s);
 		json_decref(valT);
+		json_decref(val);
 		free(s);
 		return ret;
 	}
@@ -820,8 +848,10 @@ bool poolConnecter::handleStratumMethod(const char* s)
 			applog::log(LOG_NOTICE, "MESSAGE FROM SERVER:");
 			applog::log(LOG_NOTICE, json_string_value(valT));
 		}
-		if (!id || json_is_null(id))
+		if (!id || json_is_null(id)){
+			json_decref(val);
 			return true;
+		}
 		valT = json_object();
 		json_object_set(valT, "id", id);
 		json_object_set_new(valT, "error", json_null());
@@ -829,6 +859,7 @@ bool poolConnecter::handleStratumMethod(const char* s)
 		s = json_dumps(valT, 0);
 		ret = sendLine(s);
 		json_decref(valT);
+		json_decref(val);
 		free(s);
 		return ret;
 	}
@@ -847,6 +878,7 @@ bool poolConnecter::handleStratumMethod(const char* s)
 		s = json_dumps(valT, 0);
 		ret = sendLine(s);
 		json_decref(valT);
+		json_decref(val);
 		free(s);
 		return ret;
 	}
@@ -898,11 +930,10 @@ bool poolConnecter::stratumAuthorize()
 	res_val = json_object_get(val, "result");
 	err_val = json_object_get(val, "error");
 	req_id = (int) json_integer_value(json_object_get(val, "id"));
-	if (val)
-		json_decref(val);
 
 	if (req_id == 2 && (!res_val || json_is_false(res_val) || (err_val && !json_is_null(err_val)))) {
 		applog::log(LOG_ERR, "Stratum authentication failed");
+		json_decref(val);
 		return false;
 	}
 	if (jsonrpc2) {
@@ -916,10 +947,12 @@ bool poolConnecter::stratumAuthorize()
 	sprintf(s, "{\"id\": 3, \"method\": \"mining.extranonce.subscribe\", \"params\": []}");
 	if (!sendLine(s)){
 		delete[] s;
+		json_decref(val);
 		return true;
 	}
 	delete[] s;
 	if (!socketFull(3)) {
+		json_decref(val);
 		//if (opt_debug)
 		//	applog(LOG_DEBUG, "stratum extranonce subscribe timed out");
 		return true;
@@ -943,24 +976,25 @@ bool poolConnecter::stratumAuthorize()
 		}
 		free(sret);
 	}
+	json_decref(val);
 	return true;
 }
 
-void* poolConnecter::poolMainMethod()
+void* poolConnecter::poolMainMethod(void *poolConnObj)
 {
+	poolConnecter *poolConnObject=(poolConnecter*)poolConnObj;
 	char *s;
 	int failures;
-	jsonrpc2=false;
 	while(1){
 		failures=0;
-		while (!curl) {
-			if (!stratumConnect() || !stratumSubscribe() || !stratumAuthorize()) {
-				if (curl) {
-					curl_easy_cleanup(curl);
-					curl = NULL;
-					sockBuf[0] = '\0';
+		while (!poolConnObject->curl) {
+			if (!poolConnObject->stratumConnect() || !poolConnObject->stratumSubscribe() || !poolConnObject->stratumAuthorize()) {
+				if (poolConnObject->curl) {
+					curl_easy_cleanup(poolConnObject->curl);
+					poolConnObject->curl = NULL;
+					poolConnObject->sockBuf[0] = '\0';
 				}
-				if (retryCount >= 0 && ++failures > retryCount) {
+				if (poolConnObject->retryCount >= 0 && ++failures > poolConnObject->retryCount) {
 					applog::log(LOG_ERR, "...terminating workio thread");
 					//tq_push(thr_info[work_thr_id].q, NULL);
 					return NULL;
@@ -972,22 +1006,22 @@ void* poolConnecter::poolMainMethod()
 
 		//i skipped a big if cuz i had no idea what it does
 
-		if (!socketFull(300)) {
+		if (!poolConnObject->socketFull(300)) {
 			applog::log(LOG_ERR, "Stratum connection timeout");
 			s = NULL;
 		} else
-			s = receiveLine();
+			s = poolConnObject->receiveLine();
 		if (!s) {
-			if (curl) {
-				curl_easy_cleanup(curl);
-				curl = NULL;
-				sockBuf[0] = '\0';
+			if (poolConnObject->curl) {
+				curl_easy_cleanup(poolConnObject->curl);
+				poolConnObject->curl = NULL;
+				poolConnObject->sockBuf[0] = '\0';
 			}
 			applog::log(LOG_ERR, "Stratum connection interrupted");
 			continue;
 		}
-		if (!handleStratumMethod(s)){
-			handleStratumResponse(s);
+		if (!poolConnObject->handleStratumMethod(s)){
+			poolConnObject->handleStratumResponse(s);
 		}
 		free(s);
 	}

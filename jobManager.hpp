@@ -12,11 +12,13 @@ private:
     jobManager();
 
 public:
-    static std::vector<poolConnecter> pools;
+    static std::vector<poolConnecter*> pools;
+    static std::vector<pthread_t> poolThreads;
     static std::vector<clientConnecter*> clients;
     static std::vector<pthread_t> clientThreads;
 
     static void *startClientListen(void *port);
+    static bool startNewPoolConnection(char *url, char *user, char *pass);
 };
 
 #endif
