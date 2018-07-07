@@ -18,15 +18,15 @@ int main(int argc, char** argv)
     /*char url[29]="http://ltc.suprnova.cc:4444";
     char user[15]="trambulin.tram";
     char pass[2]="x";*/
-    jobManager::startNewPoolConnection(url,user,pass);
+    //jobManager::startNewPoolConnection(url,user,pass);
     int port=27015;
     
-    /*pthread_attr_init(&attrClient);
-    n = pthread_create(&pthClient, &attrPool, jobManager::startClientListen, &port);
+    pthread_attr_init(&attrClient);
+    n = pthread_create(&pthClient, &attrClient, jobManager::startClientListen, &port);
     pthread_attr_destroy(&attrClient);
     if(n) {
         applog::log(LOG_ERR,"jobManager thread create failed");
-    }*/
+    }
     char f[256];
     std::cout << "teszt";
     while(1){
