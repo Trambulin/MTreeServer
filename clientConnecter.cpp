@@ -2,6 +2,7 @@
 //#include<stdlib.h>
 #include<string.h>
 #include<unistd.h>
+#include<netinet/tcp.h>
 //#include<sys/types.h> 
 //#include<sys/socket.h>
 #include"clientConnecter.hpp"
@@ -9,8 +10,9 @@
 
 clientConnecter::clientConnecter(int sockfd, in_addr_t cIP)
 {
-    connOver=false; halfLength=false;
-    fullMContLength=0; recurContLengthSummer=0;
+    connOver=false; halfLength=false; isDestructible=false;
+    //keepAlive=1; kAIdle=20; kAInterval=5; kACount=3;
+    currentContLength=0; fullMContLength=0; recurContLengthSummer=0;
     this->sockfd=sockfd;
     unsigned char ip1=cIP>>24;
     unsigned char ip2=cIP>>16;
@@ -22,10 +24,11 @@ clientConnecter::clientConnecter(int sockfd, in_addr_t cIP)
 clientConnecter::~clientConnecter()
 {
     if(fullMContLength>0)
-        delete fullMsgContainer;
+        delete[] fullMsgContainer;
     close(sockfd);
 }
 
+//processing the received core (no header/footer) message
 void clientConnecter::messageHandler()
 {
     if(fullMContLength<1){
@@ -40,6 +43,7 @@ void clientConnecter::messageHandler()
     }
 }
 
+//just a function to prevent redundancy lines in bufferMsgCheck
 void clientConnecter::bufferCopy(int bufLength, int startIndex, int actualBufLength)
 {
     if(actualBufLength<fullMContLength+3){ //+3 = 2byte length+ 1 byte checksum
@@ -77,6 +81,7 @@ void clientConnecter::bufferCopy(int bufLength, int startIndex, int actualBufLen
     }
 }
 
+//pull out/select full template messages from the stream and call messageHandler for every msg
 void clientConnecter::bufferMsgCheck(int bufLength, bool recurCall/*=false*/)
 {
     int startIndex=0;
@@ -95,14 +100,9 @@ void clientConnecter::bufferMsgCheck(int bufLength, bool recurCall/*=false*/)
         delete[] fullMsgContainer;
     }
     if(halfLength){
-        if(bufLength<1){
-            //0 byte read, conn over?
-        }
-        else{
-            fullMContLength+=buffer[0];
-            fullMsgContainer=new char[fullMContLength];
-            bufferCopy(bufLength, startIndex+1, bufLength+1);
-        }
+        fullMContLength+=buffer[0];
+        fullMsgContainer=new char[fullMContLength];
+        bufferCopy(bufLength, startIndex+1, bufLength+1);
         halfLength=false;
     }
     else if(fullMContLength>0){
@@ -147,13 +147,8 @@ void clientConnecter::bufferMsgCheck(int bufLength, bool recurCall/*=false*/)
     else{
         if(actualBufLength < 2){
             //cant determine msg length with that
-            if(actualBufLength==1){
-                fullMContLength=buffer[startIndex]<<8;
-                halfLength=true;
-            }
-            else{
-                //read with 0 byte (conn over?)
-            }
+            fullMContLength=buffer[startIndex]<<8;
+            halfLength=true;
         }
         else{
             fullMContLength=buffer[startIndex]<<8;
@@ -165,10 +160,49 @@ void clientConnecter::bufferMsgCheck(int bufLength, bool recurCall/*=false*/)
     recurContLengthSummer=0;
 }
 
+//input message function for read incoming messages (should be renamed?)
 void* clientConnecter::initClient(void *clientConn)
 {
     clientConnecter *tClient=(clientConnecter*)clientConn;
     int n;
+    struct timeval tv;
+    tv.tv_sec = 10;  //time before error read occurs
+    //read function return -1 every tv seconds, must be set here
+    /* if(setsockopt(tClient->sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval))){
+        applog::log(LOG_ERR,"Timeo failed");
+    } */
+    /* if (setsockopt(tClient->sockfd, SOL_SOCKET, SO_KEEPALIVE, &tClient->keepAlive, sizeof(tClient->keepAlive)) < 0)
+    {
+        //applog::log(LOG_ERR,"Keepalive failed");
+        //Error occurred, so output an error message containing:
+        //__LINE__, socket, SO_KEEPALIVE, switch, errno, etc.
+    }
+    if (false)//tClient->keepAlive)
+    {
+        // Set the number of seconds the connection must be idle before sending a KA probe.
+        if (setsockopt(tClient->sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &tClient->kAIdle, sizeof(tClient->kAIdle)) < 0)
+        {
+            applog::log(LOG_ERR,"KeepIdle failed");
+            // Error occurred, so output an error message containing:
+            //__LINE__, socket, TCP_KEEPIDLE, idle, errno, etc.
+        }
+
+        // Set how often in seconds to resend an unacked KA probe.
+        if (setsockopt(tClient->sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &tClient->kAInterval, sizeof(tClient->kAInterval)) < 0)
+        {
+            applog::log(LOG_ERR,"KeepInterval failed");
+            // Error occurred, so output an error message containing:
+            //__LINE__, socket, TCP_KEEPINTVL, interval, errno, etc.
+        }
+
+        // Set how many times to resend a KA probe if previous probe was unacked.
+        if (setsockopt(tClient->sockfd, IPPROTO_TCP, TCP_KEEPCNT, &tClient->kACount, sizeof(tClient->kACount)) < 0)
+        {
+            applog::log(LOG_ERR,"KeepCount failed");
+            // Error occurred, so output an error message containing:
+            //__LINE__, socket, TCP_KEEPCNT, count, errno, etc.
+        }
+    } */
     char *idContainer;
     idContainer=new char[5];
     sprintf(idContainer,"%d",tClient->sockfd);
@@ -176,9 +210,20 @@ void* clientConnecter::initClient(void *clientConn)
     //bzero(buffer,256);
     while(1){
         n = read(tClient->sockfd,tClient->buffer,255);
-        if (n < 0){
-            applog::log(LOG_ERR,"ERROR reading from socket: ");
-            applog::log(LOG_ERR,tClient->clientIP);
+        if (n < 1){
+            if(n < 0){
+                //occurs on error, or time limit exceeding
+                //applog::log(LOG_ERR,"ERROR reading from socket: ");
+                //applog::log(LOG_ERR,tClient->clientIP);
+                char errBuf[35];
+                sprintf(errBuf,"socker read error, number: %d",n);
+                applog::log(LOG_ERR,errBuf);
+            }
+            else{
+                applog::log(LOG_NOTICE,"Client closed connection: ");
+                applog::log(LOG_NOTICE,tClient->clientIP);
+                break;
+            }
         }
         else{
             tClient->bufferMsgCheck(n);
@@ -190,20 +235,21 @@ void* clientConnecter::initClient(void *clientConn)
             break;
         }
     }
-    n = write(tClient->sockfd,"Connection over",16);
-    if (n < 0){
-        applog::log(LOG_ERR,"ERROR writing to socket");
-    }
-    delete tClient;
+    tClient->connOver=true;
+    tClient->isDestructible=true;
+    //delete tClient;
 }
 
 int clientConnecter::sendMessage(char* buffer, size_t length)
 {
     int n;
-    n = write(sockfd, buffer, length);
-    if (n < 0){
-        applog::log(LOG_ERR,"ERROR writing to socket: ");
-        applog::log(LOG_ERR,clientIP);
+    if(!connOver){
+        n = write(sockfd, buffer, length);
+        if (n < 0){
+            applog::log(LOG_ERR,"ERROR writing to socket: ");
+            applog::log(LOG_ERR,clientIP);
+        }
+        return n;
     }
-    return n;
+    return -1;
 }

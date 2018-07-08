@@ -17,6 +17,8 @@ public:
     static std::vector<clientConnecter*> clients;
     static std::vector<pthread_t> clientThreads;
 
+    static void notifyClients(char* buffer, size_t length);
+
     static void *startClientListen(void *port);
     static bool startNewPoolConnection(char *url, char *user, char *pass);
 };

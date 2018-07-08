@@ -1,4 +1,5 @@
 #include<netinet/in.h>
+//#include<netinet/tcp.h>
 #include<unistd.h>
 #include"jobManager.hpp"
 #include"applog.hpp"
@@ -7,6 +8,21 @@ std::vector<poolConnecter*> jobManager::pools;
 std::vector<pthread_t> jobManager::poolThreads;
 std::vector<clientConnecter*> jobManager::clients;
 std::vector<pthread_t> jobManager::clientThreads;
+
+void jobManager::notifyClients(char* buffer, size_t length)
+{
+    for(int i=0;i<clients.size();i++){
+        if(clients[i]->isDestructible){
+            delete clients[i];
+            clients.erase(clients.begin()+i);
+            clientThreads.erase(clientThreads.begin()+i);
+            i--; //client size is reduced, i must be reduced to not miss a client
+        }
+        else{
+            clients[i]->sendMessage(buffer, length);
+        }
+    }
+}
 
 void *jobManager::startClientListen(void *port)
 {
@@ -19,6 +35,25 @@ void *jobManager::startClientListen(void *port)
         applog::log(LOG_ERR,"ERROR opening socket");
         exit(1);
     }
+    
+    //it is said, it is better to do keepalive with accepted clients, but it works here as well
+    /* int keepAlive=1, kAIdle=20, kAInterval=5, kACount=3;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(keepAlive)) < 0){
+        applog::log(LOG_ERR,"Keepalive failed");
+    }
+    if (keepAlive)
+    {
+        if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &kAIdle, sizeof(kAIdle)) < 0){
+            applog::log(LOG_ERR,"KeepIdle failed");
+        }
+        if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &kAInterval, sizeof(kAInterval)) < 0){
+            applog::log(LOG_ERR,"KeepInterval failed");
+        }
+        if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &kACount, sizeof(kACount)) < 0){
+            applog::log(LOG_ERR,"KeepCount failed");
+        }
+    } */
+
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(*sockPort);

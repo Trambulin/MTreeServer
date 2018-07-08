@@ -32,8 +32,8 @@ int main(int argc, char** argv)
     while(1){
         std::cin >> f;
         std::cout << f << "\n";
-        //jobManager::clients[1]->connOver=true; //close connection
-        //jobManager::clients[1]->sendMessage(f,10);
+        //jobManager::clients[0]->connOver=true; //close connection
+        jobManager::notifyClients(f,10);
     }
     return 0;
 }

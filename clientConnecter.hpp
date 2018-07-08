@@ -9,6 +9,7 @@ private:
     int sockfd;
     bool halfLength;
     int16_t fullMContLength, recurContLengthSummer, currentContLength;
+    //int keepAlive, kAIdle, kAInterval, kACount;
     char clientIP[16];
     char buffer[256];
     char* fullMsgContainer;
@@ -22,7 +23,7 @@ public:
 
     void bufferMsgCheck(int bufLength, bool recurCall=false);
 
-    bool connOver;
+    bool connOver, isDestructible;
 
     static void* initClient(void *clientConn);
     int sendMessage(char* buffer, size_t length);
