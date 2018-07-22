@@ -14,7 +14,7 @@ applog.o: applog.cpp applog.hpp
 	g++ -g -c applog.cpp
 
 clientConnecter.o: clientConnecter.cpp clientConnecter.hpp
-	g++ -g -c clientConnecter.cpp
+	g++ -g -c -std=c++11 clientConnecter.cpp
 
 clean:
 	rm *.o server.out

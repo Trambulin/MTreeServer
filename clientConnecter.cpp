@@ -11,9 +11,12 @@
 clientConnecter::clientConnecter(int sockfd, in_addr_t cIP)
 {
     connOver=false; halfLength=false; isDestructible=false;
+    hashPerSec=0; isReady=false;
     //keepAlive=1; kAIdle=20; kAInterval=5; kACount=3;
     currentContLength=0; fullMContLength=0; recurContLengthSummer=0;
     this->sockfd=sockfd;
+    pthread_mutex_init(&publicOverLock, NULL);
+    pthread_mutex_init(&publicHpSLock, NULL);
     unsigned char ip1=cIP>>24;
     unsigned char ip2=cIP>>16;
     unsigned char ip3=cIP>>8;
@@ -23,23 +26,122 @@ clientConnecter::clientConnecter(int sockfd, in_addr_t cIP)
 
 clientConnecter::~clientConnecter()
 {
+    pthread_mutex_destroy(&publicOverLock);
+    pthread_mutex_destroy(&publicHpSLock);
     if(fullMContLength>0)
         delete[] fullMsgContainer;
     close(sockfd);
 }
 
+inline void clientConnecter::uint16ToChar2(uint16_t src, char dest[2])
+{
+    dest[0] = (unsigned char)(src >> 8);
+	dest[1] = (unsigned char)src;
+}
+
+inline uint16_t clientConnecter::char2ToUint16(char src[2])
+{
+    uint16_t result=0;
+    result=src[0]<<8;
+    result+=(unsigned char)src[1];
+    return result;
+}
+
+void clientConnecter::askForSpeed()
+{
+    char askSpeedMsg[3];
+    uint16ToChar2(3,askSpeedMsg);
+    askSpeedMsg[2]=0; //scrypt algInd
+    sendMessage(askSpeedMsg, 3);
+}
+
+void clientConnecter::registrationMsg()
+{
+    std::string textUP(fullMsgContainer+2,fullMContLength-2);
+    size_t dividerIndex=textUP.find_first_of((char)1);
+    std::string user=textUP.substr(0,dividerIndex+1);
+    std::string pass=textUP.substr(dividerIndex+1);
+    //TODO register user with the above details
+    char *result=new char[3];
+    uint16ToChar2(1,result);
+    if(true)
+        result[2]=0; //registration success
+    else
+        result[2]=1; //registration failed
+    sendMessage(result,3);
+    delete[] result;
+}
+
+void clientConnecter::loginMsg()
+{
+    std::string textUP(fullMsgContainer+2,fullMContLength-2);
+    size_t dividerIndex=textUP.find_first_of((char)1);
+    std::string user=textUP.substr(0,dividerIndex+1);
+    std::string pass=textUP.substr(dividerIndex+1);
+    //TODO login user with the above details
+    char *result=new char[3];
+    uint16ToChar2(2,result);
+    if(true)
+        result[2]=0; //login success
+    else
+        result[2]=1; //login failed
+    sendMessage(result,3);
+    if(true)
+        askForSpeed();
+    delete[] result;
+}
+
+void clientConnecter::processSpeedInfo()
+{
+    uint8_t algIndex=fullMsgContainer[2];
+    uint32_t tHashSpeed = ((uint32_t)((unsigned char)fullMsgContainer[3])) << 24;
+    tHashSpeed += ((uint32_t)((unsigned char)fullMsgContainer[4])) << 16;
+    tHashSpeed += ((uint32_t)((unsigned char)fullMsgContainer[5])) << 8;
+    tHashSpeed += (uint32_t)((unsigned char)fullMsgContainer[6]);
+    if(algIndex == 0){ //scrypt
+        pthread_mutex_lock(&publicHpSLock);
+        hashPerSec=tHashSpeed;
+        isReady=true;
+        pthread_mutex_unlock(&publicHpSLock);
+        applog::log(LOG_NOTICE,"Hash speedinfo APPEARED");
+        applog::log(LOG_NOTICE,std::to_string(hashPerSec).c_str());
+    }
+    else{ //fail
+    }
+}
+
 //processing the received core (no header/footer) message
 void clientConnecter::messageHandler()
 {
-    if(fullMContLength<1){
-        applog::log(LOG_NOTICE,"0 byte msg");
+    if(fullMContLength<3){
+        applog::log(LOG_NOTICE,"too short real content");
     }
     else{
-        applog::log(LOG_NOTICE,"One message appeared:");
-        char* correctDisplay=new char[fullMContLength+1];
-        memcpy(correctDisplay,fullMsgContainer,fullMContLength);
-        correctDisplay[fullMContLength]='\0';
-        applog::log(LOG_NOTICE,correctDisplay);
+        uint16_t msgType= char2ToUint16(fullMsgContainer);
+        if(msgType == 0){ //version
+            if(fullMsgContainer[2]){ //client's version is not eligible
+                pthread_mutex_lock(&publicOverLock);
+                connOver=true;
+                pthread_mutex_unlock(&publicOverLock);
+            }
+            applog::log(LOG_NOTICE,"Version check DONE");
+        }
+        else if(msgType == 1){ //registration
+            registrationMsg();
+        }
+        else if(msgType == 2){ //login
+            loginMsg();
+        }
+        else if(msgType == 3){ //speed HashPerSec
+            processSpeedInfo();
+        }
+
+        //char* correctDisplay=new char[fullMContLength+1];
+        //memcpy(correctDisplay,fullMsgContainer,fullMContLength);
+        //correctDisplay[fullMContLength]='\0';
+        //applog::log(LOG_NOTICE,"One message appeared:");
+        //applog::log(LOG_NOTICE,correctDisplay);
+        //delete[] correctDisplay;
     }
 }
 
@@ -160,17 +262,12 @@ void clientConnecter::bufferMsgCheck(int bufLength, bool recurCall/*=false*/)
     recurContLengthSummer=0;
 }
 
-//input message function for read incoming messages (should be renamed?)
-void* clientConnecter::initClient(void *clientConn)
+void clientConnecter::sendHashingDatas(uint8_t algIndex, int jobIndex, uint32_t *datas, int datasLength, uint32_t minVal, uint32_t maxVal, uint32_t target)
 {
-    clientConnecter *tClient=(clientConnecter*)clientConn;
-    int n;
-    struct timeval tv;
-    tv.tv_sec = 10;  //time before error read occurs
-    //read function return -1 every tv seconds, must be set here
-    /* if(setsockopt(tClient->sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval))){
-        applog::log(LOG_ERR,"Timeo failed");
-    } */
+}
+
+void commentholder()
+{
     /* if (setsockopt(tClient->sockfd, SOL_SOCKET, SO_KEEPALIVE, &tClient->keepAlive, sizeof(tClient->keepAlive)) < 0)
     {
         //applog::log(LOG_ERR,"Keepalive failed");
@@ -203,10 +300,28 @@ void* clientConnecter::initClient(void *clientConn)
             //__LINE__, socket, TCP_KEEPCNT, count, errno, etc.
         }
     } */
+}
+
+//input message function for read incoming messages (should be renamed?)
+void* clientConnecter::initClient(void *clientConn)
+{
+    clientConnecter *tClient=(clientConnecter*)clientConn;
+    int n;
+    struct timeval tv;
+    tv.tv_sec = 10;  //time before error read occurs
+    //read function return -1 every tv seconds, must be set here
+    /* if(setsockopt(tClient->sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval))){
+        applog::log(LOG_ERR,"Timeo failed");
+    } */
+    //commentholder()
     char *idContainer;
     idContainer=new char[5];
     sprintf(idContainer,"%d",tClient->sockfd);
     memset(tClient->buffer,0,256);
+    char minVersion[6];
+    minVersion[0]=0; minVersion[1]=0; //message type
+    minVersion[2]=0; minVersion[3]=0; minVersion[4]=0; minVersion[5]=1; //version (int32)
+    tClient->sendMessage(minVersion,6);
     //bzero(buffer,256);
     while(1){
         n = read(tClient->sockfd,tClient->buffer,255);
@@ -235,16 +350,26 @@ void* clientConnecter::initClient(void *clientConn)
             break;
         }
     }
+    pthread_mutex_lock(&tClient->publicOverLock);
     tClient->connOver=true;
     tClient->isDestructible=true;
+    pthread_mutex_unlock(&tClient->publicOverLock);
     //delete tClient;
 }
 
-int clientConnecter::sendMessage(char* buffer, size_t length)
+int clientConnecter::sendMessage(char* realContent, size_t length)
 {
     int n;
     if(!connOver){
-        n = write(sockfd, buffer, length);
+        char *buffer=new char[length+3];
+        uint16ToChar2((uint16_t)(length),buffer);
+        memcpy(buffer+2,realContent,length);
+        int8_t checksum = 0;
+        for (size_t i = 0; i < length; i++) {
+            checksum += realContent[i];
+        }
+        buffer[length+2] = checksum;
+        n = write(sockfd, buffer, length+3);
         if (n < 0){
             applog::log(LOG_ERR,"ERROR writing to socket: ");
             applog::log(LOG_ERR,clientIP);

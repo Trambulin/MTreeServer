@@ -9,6 +9,38 @@ std::vector<pthread_t> jobManager::poolThreads;
 std::vector<clientConnecter*> jobManager::clients;
 std::vector<pthread_t> jobManager::clientThreads;
 
+void jobManager::calculateClientRanges()
+{
+    uint32_t hashSum=0;
+    double maxValTemp=0;
+    double lastToCheck=4294965000;
+    for(int i=0;i<clients.size();i++){
+        if(clients[i]->isDestructible){
+            delete clients[i];
+            clients.erase(clients.begin()+i);
+            clientThreads.erase(clientThreads.begin()+i);
+            i--; //client size is reduced, i must be reduced to not miss a client
+        }
+        else if(!clients[i]->connOver && clients[i]->isReady){
+            hashSum+=clients[i]->hashPerSec;
+        }
+    }
+    for(int i=0;i<clients.size();i++){
+        if(clients[i]->isDestructible){
+            delete clients[i];
+            clients.erase(clients.begin()+i);
+            clientThreads.erase(clientThreads.begin()+i);
+            i--; //client size is reduced, i must be reduced to not miss a client
+        }
+        else if(!clients[i]->connOver && clients[i]->isReady){
+            double powerRate=((double)clients[i]->hashPerSec)/((double)hashSum);
+            double calcRange=lastToCheck*powerRate;
+            clients[i]->sendHashingDatas(0,0,0,0,(uint32_t)maxValTemp,(uint32_t)(maxValTemp+calcRange),0);
+            maxValTemp+=calcRange;
+        }
+    }
+}
+
 void jobManager::notifyClients(char* buffer, size_t length)
 {
     for(int i=0;i<clients.size();i++){

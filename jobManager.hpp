@@ -17,6 +17,7 @@ public:
     static std::vector<clientConnecter*> clients;
     static std::vector<pthread_t> clientThreads;
 
+    static void calculateClientRanges();
     static void notifyClients(char* buffer, size_t length);
 
     static void *startClientListen(void *port);
