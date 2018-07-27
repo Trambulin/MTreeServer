@@ -135,6 +135,13 @@ void clientConnecter::messageHandler()
         else if(msgType == 3){ //speed HashPerSec
             processSpeedInfo();
         }
+        else if(msgType == 4){ //mesage to log
+            char *logMsg=new char[fullMContLength-1];
+            memcpy(logMsg,fullMsgContainer+2,fullMContLength-2);
+            logMsg[fullMContLength-1]='\0';
+            applog::log(LOG_NOTICE,"Message from one of the client:");
+            applog::log(LOG_NOTICE,logMsg);
+        }
 
         //char* correctDisplay=new char[fullMContLength+1];
         //memcpy(correctDisplay,fullMsgContainer,fullMContLength);

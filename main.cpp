@@ -18,7 +18,7 @@ int main(int argc, char** argv)
     /*char url[29]="http://ltc.suprnova.cc:4444";
     char user[15]="trambulin.tram";
     char pass[2]="x";*/
-    //jobManager::startNewPoolConnection(url,user,pass);
+    jobManager::startNewPoolConnection(url,user,pass,0);
     int port=27015;
     
     pthread_attr_init(&attrClient);

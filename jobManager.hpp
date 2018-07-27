@@ -21,7 +21,7 @@ public:
     static void notifyClients(char* buffer, size_t length);
 
     static void *startClientListen(void *port);
-    static bool startNewPoolConnection(char *url, char *user, char *pass);
+    static bool startNewPoolConnection(char *url, char *user, char *pass, int poolId);
 };
 
 #endif

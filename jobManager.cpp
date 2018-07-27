@@ -9,6 +9,7 @@ std::vector<pthread_t> jobManager::poolThreads;
 std::vector<clientConnecter*> jobManager::clients;
 std::vector<pthread_t> jobManager::clientThreads;
 
+//it is called by clientConnecter
 void jobManager::calculateClientRanges()
 {
     uint32_t hashSum=0;
@@ -41,6 +42,7 @@ void jobManager::calculateClientRanges()
     }
 }
 
+//it is called by poolConnecter
 void jobManager::notifyClients(char* buffer, size_t length)
 {
     for(int i=0;i<clients.size();i++){
@@ -50,7 +52,7 @@ void jobManager::notifyClients(char* buffer, size_t length)
             clientThreads.erase(clientThreads.begin()+i);
             i--; //client size is reduced, i must be reduced to not miss a client
         }
-        else{
+        else if(!clients[i]->connOver && clients[i]->isReady){
             clients[i]->sendMessage(buffer, length);
         }
     }
@@ -117,18 +119,24 @@ void *jobManager::startClientListen(void *port)
     }
 }
 
-bool jobManager::startNewPoolConnection(char *url, char *user, char *pass)
+bool jobManager::startNewPoolConnection(char *url, char *user, char *pass, int poolId)
 {
     int n;
     pthread_t pth;
     pthread_attr_t attr;
+    poolThreadParam *tParam;
     poolConnecter *somePool;
-    somePool = new poolConnecter(url, user, pass);
+    //somePool = new poolConnecter(url, user, pass, poolId);
+    somePool = new poolConnecter();
+    tParam=new poolThreadParam();
+    tParam->poolConnObjRef=somePool;
+    tParam->notifyFunc=notifyClients;
     pthread_attr_init(&attr);
-    n = pthread_create(&pth, &attr, poolConnecter::poolMainMethod, somePool);
+    n = pthread_create(&pth, &attr, poolConnecter::poolMainMethod, tParam);
     pthread_attr_destroy(&attr);
     if(n) {
         delete somePool;
+        delete tParam;
         applog::log(LOG_ERR,"client thread create failed");
         return false;
     }

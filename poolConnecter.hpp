@@ -26,7 +26,7 @@ private:
 
     size_t rpc2Bloblen;
     char *rpc2Blob, *rpc2JobId;
-    uint32_t rpc2Target[8];
+    uint32_t rpc2Target;
     double stratumDiff;
 
     size_t xnonce1Size, xnonce2Size, coinbaseSize;
@@ -38,6 +38,8 @@ private:
     bool stratumConnect();
     bool stratumSubscribe();
     bool stratumAuthorize();
+
+    void sha256d(unsigned char *hash, const unsigned char *data, int len);
 
     bool sendLine(char *s);
     char* receiveLine();
@@ -57,12 +59,25 @@ private:
     uint32_t getblocheight();
     bool hex2bin(unsigned char *p, const char *hexstr, size_t len);
 
+    void prepareWorkDatas();
+
 public:
     poolConnecter();
-    poolConnecter(char *stratumUrl, char *startUser, char *startPass);
+    poolConnecter(char *stratumUrl, char *startUser, char *startPass, int poolObjId);
     ~poolConnecter();
 
+    //datas to send to clients
+    int poolId;
+    uint32_t wData[48], wTarget[8];
+    char *wJobId;
+
     static void* poolMainMethod(void *poolConnObject);
+};
+
+struct poolThreadParam
+{
+    poolConnecter *poolConnObjRef;
+    void (*notifyFunc)(char*,size_t);
 };
 
 #endif

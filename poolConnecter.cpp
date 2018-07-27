@@ -4,13 +4,39 @@
 #include<errno.h>
 #include"poolConnecter.hpp"
 #include"applog.hpp"
+#include"sha256Abstract.hpp"
+
+int myStrcmp(const char *s1, const char *s2)
+{
+	int i=0;
+	if(!s1 || !s2)
+		return 0;
+	while(s1[i]!='\0' || s2[i]!='\0'){
+		if(s1[i]!=s2[i])
+			return 1;
+		i++;
+	}
+	if(s1[i]==s2[i])
+		return 0;
+	else
+		return 1;
+}
+
+inline uint32_t le32dec(const void *pp)
+{
+	const uint8_t *p = (uint8_t const *)pp;
+	return ((uint32_t)(p[0]) + ((uint32_t)(p[1]) << 8) + ((uint32_t)(p[2]) << 16) + ((uint32_t)(p[3]) << 24));
+}
 
 poolConnecter::poolConnecter()
 {
 	acceptedCount=0; rejectedCount=0;
 	curl=NULL; sockBuf=NULL; rpc2Blob=NULL; rpc2JobId=NULL;
 	jsonrpc2=true;
-	memset(rpc2Target, 0xff, sizeof(rpc2Target));
+	wJobId=(char*)malloc(1);
+	wJobId[0]='\0';
+	//memset(rpc2Target, 0xff, sizeof(rpc2Target));
+	rpc2Target=0xffffffff;
 	retryCount=-1;
 	url=new char[50];
 	strcpy(url,"http://killallasics.moneroworld.com:5555");
@@ -19,12 +45,16 @@ poolConnecter::poolConnecter()
 	pass=NULL;
 }
 
-poolConnecter::poolConnecter(char* stratumUrl, char *stratUser, char *stratPass)
+poolConnecter::poolConnecter(char* stratumUrl, char *stratUser, char *stratPass, int poolObjId)
 {
+	poolId=poolObjId;
 	acceptedCount=0; rejectedCount=0;
 	curl=NULL; sockBuf=NULL; sessionId=NULL; xnonce1=NULL; coinbase=NULL; jMerkle=NULL;
 	jsonrpc2=false;
-	memset(rpc2Target, 0xff, sizeof(rpc2Target));
+	wJobId=(char*)malloc(1);
+	wJobId[0]='\0';
+	//memset(rpc2Target, 0xff, sizeof(rpc2Target));
+	rpc2Target=0xffffffff;
 	retryCount=-1;
 	url=stratumUrl;
 	user=stratUser;
@@ -684,7 +714,7 @@ bool poolConnecter::rpc2JobDecode(const json_t *params)
 		if (!hex2bin((unsigned char*) &target, hexstr, 4))
 			return false;
 		
-		if(rpc2Target[7] != target) {
+		if(rpc2Target != target) {
 			double hashrate = 0.0;
 			double difficulty = (((double) 0xffffffff) / target);
 			//if (!opt_quiet) {
@@ -692,7 +722,7 @@ bool poolConnecter::rpc2JobDecode(const json_t *params)
 			//	applog(LOG_WARNING, "Stratum difficulty set to %g", difficulty);
 			//}
 			stratumDiff = difficulty;
-			rpc2Target[7] = target;
+			rpc2Target = target;
 		}
 
 		if (rpc2JobId) free(rpc2JobId);
@@ -980,9 +1010,62 @@ bool poolConnecter::stratumAuthorize()
 	return true;
 }
 
-void* poolConnecter::poolMainMethod(void *poolConnObj)
+void poolConnecter::prepareWorkDatas()
 {
-	poolConnecter *poolConnObject=(poolConnecter*)poolConnObj;
+	if(jsonrpc2){
+		if(!rpc2Blob){
+			applog::log(LOG_ERR, "...terminating workio thread");
+			return;
+		}
+		memcpy(wData, rpc2Blob, rpc2Bloblen);
+		memset(wTarget, 0xff, sizeof(wTarget));
+		wTarget[7]=rpc2Target;
+		if(wJobId)
+			free(wJobId);
+		wJobId=strdup(rpc2JobId);
+	}
+	else{
+		unsigned char merkle_root[64] = { 0 };
+		free(wJobId);
+		wJobId=strdup(jobId);
+		//xnonce2..
+		sha256Abstract::sha256d(merkle_root,coinbase,(int)coinbaseSize);
+		for (int i = 0; i < merkleCount; i++) {
+			memcpy(merkle_root + 32, jMerkle[i], 32);
+			sha256Abstract::sha256d(merkle_root, merkle_root, 64);
+		}
+		//xnonce2 again
+		memset(wData,0,128);
+		wData[0] = le32dec(jVersion);
+		for (int i = 0; i < 8; i++){
+			wData[1 + i] = le32dec((uint32_t *) prevHash + i);
+			wData[9 + i] = sha256Abstract::be32dec((uint32_t *) merkle_root + i);
+		}
+		wData[17] = le32dec(jNtime);
+		wData[18] = le32dec(jNbits);
+		// required ?
+		wData[20] = 0x80000000;
+		wData[31] = 0x00000280;
+
+		double diffTmp=jDiff/65536.0;
+		int k;
+		for (k = 6; k > 0 && diffTmp > 1.0; k--)
+			diffTmp /= 4294967296.0;
+		uint64_t m=(uint64_t)(4294901760.0 / diffTmp);
+		if (m == 0 && k == 6)
+			memset(wTarget, 0xff, 32);
+		else {
+			memset(wTarget, 0, 32);
+			wTarget[k] = (uint32_t)m;
+			wTarget[k + 1] = (uint32_t)(m >> 32);
+		}
+	}
+}
+
+void* poolConnecter::poolMainMethod(void *poolThreadPar)
+{
+	poolThreadParam *tParam=(poolThreadParam*)poolThreadPar;
+	poolConnecter *poolConnObject=tParam->poolConnObjRef;
 	char *s;
 	int failures;
 	while(1){
@@ -1004,7 +1087,17 @@ void* poolConnecter::poolMainMethod(void *poolConnObj)
 			}
 		}
 
-		//i skipped a big if cuz i had no idea what it does
+		//strcmp fails with exception until I added mystrcmp...which i dont even use
+		if(strcmp(poolConnObject->wJobId,poolConnObject->rpc2JobId)) {
+			poolConnObject->prepareWorkDatas();
+			char *justTest=new char[10];
+			justTest[0]=0;justTest[1]=4;
+			justTest[2]='t';justTest[3]='e';justTest[4]='s';justTest[5]='t';
+			justTest[6]='M';justTest[7]='s';justTest[8]='g';justTest[9]='\0';
+			//if works i can change it to datas to send
+			tParam->notifyFunc(justTest,11);
+			delete[] justTest;
+		}
 
 		if (!poolConnObject->socketFull(300)) {
 			applog::log(LOG_ERR, "Stratum connection timeout");
