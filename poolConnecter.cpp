@@ -6,22 +6,6 @@
 #include"applog.hpp"
 #include"sha256Abstract.hpp"
 
-int myStrcmp(const char *s1, const char *s2)
-{
-	int i=0;
-	if(!s1 || !s2)
-		return 0;
-	while(s1[i]!='\0' || s2[i]!='\0'){
-		if(s1[i]!=s2[i])
-			return 1;
-		i++;
-	}
-	if(s1[i]==s2[i])
-		return 0;
-	else
-		return 1;
-}
-
 inline uint32_t le32dec(const void *pp)
 {
 	const uint8_t *p = (uint8_t const *)pp;
@@ -31,7 +15,7 @@ inline uint32_t le32dec(const void *pp)
 poolConnecter::poolConnecter()
 {
 	acceptedCount=0; rejectedCount=0;
-	curl=NULL; sockBuf=NULL; rpc2Blob=NULL; rpc2JobId=NULL;
+	curl=NULL; sockBuf=NULL; rpc2Blob=NULL; jobId=NULL;
 	jsonrpc2=true;
 	wJobId=(char*)malloc(1);
 	wJobId[0]='\0';
@@ -49,7 +33,7 @@ poolConnecter::poolConnecter(char* stratumUrl, char *stratUser, char *stratPass,
 {
 	poolId=poolObjId;
 	acceptedCount=0; rejectedCount=0;
-	curl=NULL; sockBuf=NULL; sessionId=NULL; xnonce1=NULL; coinbase=NULL; jMerkle=NULL;
+	curl=NULL; sockBuf=NULL; sessionId=NULL; xnonce1=NULL; coinbase=NULL; jMerkle=NULL; jobId=NULL;
 	jsonrpc2=false;
 	wJobId=(char*)malloc(1);
 	wJobId[0]='\0';
@@ -725,8 +709,8 @@ bool poolConnecter::rpc2JobDecode(const json_t *params)
 			rpc2Target = target;
 		}
 
-		if (rpc2JobId) free(rpc2JobId);
-		rpc2JobId = strdup(job_id);
+		if (jobId) free(jobId);
+		jobId = strdup(job_id);
 	}
 	return true;
 }
@@ -1022,7 +1006,7 @@ void poolConnecter::prepareWorkDatas()
 		wTarget[7]=rpc2Target;
 		if(wJobId)
 			free(wJobId);
-		wJobId=strdup(rpc2JobId);
+		wJobId=strdup(jobId);
 	}
 	else{
 		unsigned char merkle_root[64] = { 0 };
@@ -1088,14 +1072,25 @@ void* poolConnecter::poolMainMethod(void *poolThreadPar)
 		}
 
 		//strcmp fails with exception until I added mystrcmp...which i dont even use
-		if(strcmp(poolConnObject->wJobId,poolConnObject->rpc2JobId)) {
-			poolConnObject->prepareWorkDatas();
-			char *justTest=new char[10];
+		if(strcmp(poolConnObject->wJobId,poolConnObject->jobId)) {
+			poolConnObject->tBufL=2+5+strlen(poolConnObject->wJobId)+7+strlen(poolConnObject->jobId);
+			poolConnObject->tBuf=new char[poolConnObject->tBufL];
+			char *justTest=poolConnObject->tBuf;
 			justTest[0]=0;justTest[1]=4;
-			justTest[2]='t';justTest[3]='e';justTest[4]='s';justTest[5]='t';
-			justTest[6]='M';justTest[7]='s';justTest[8]='g';justTest[9]='\0';
+			justTest[2]='o';justTest[3]='l';justTest[4]='d';justTest[5]=':'; justTest[6]=' ';
+			int ind;
+			for(ind=7;ind<strlen(poolConnObject->wJobId)+7;ind++){
+				justTest[ind]=poolConnObject->wJobId[ind-7];
+			}
+			justTest[ind++]=','; justTest[ind++]=' '; justTest[ind++]='n'; justTest[ind++]='e';
+			justTest[ind++]='w'; justTest[ind++]=':'; justTest[ind++]=' ';
+			int indi;
+			for(indi=ind;indi<strlen(poolConnObject->jobId)+ind;indi++){
+				justTest[indi]=poolConnObject->jobId[indi-ind];
+			}
 			//if works i can change it to datas to send
-			tParam->notifyFunc(justTest,11);
+			poolConnObject->prepareWorkDatas();
+			tParam->notifyFunc(poolConnObject);
 			delete[] justTest;
 		}
 

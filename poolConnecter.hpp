@@ -25,7 +25,7 @@ private:
     uint32_t acceptedCount, rejectedCount;
 
     size_t rpc2Bloblen;
-    char *rpc2Blob, *rpc2JobId;
+    char *rpc2Blob;
     uint32_t rpc2Target;
     double stratumDiff;
 
@@ -69,7 +69,8 @@ public:
     //datas to send to clients
     int poolId;
     uint32_t wData[48], wTarget[8];
-    char *wJobId;
+    char *wJobId, *tBuf;
+    size_t tBufL;
 
     static void* poolMainMethod(void *poolConnObject);
 };
@@ -77,7 +78,7 @@ public:
 struct poolThreadParam
 {
     poolConnecter *poolConnObjRef;
-    void (*notifyFunc)(char*,size_t);
+    void (*notifyFunc)(poolConnecter*);
 };
 
 #endif

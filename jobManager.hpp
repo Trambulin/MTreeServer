@@ -18,7 +18,7 @@ public:
     static std::vector<pthread_t> clientThreads;
 
     static void calculateClientRanges();
-    static void notifyClients(char* buffer, size_t length);
+    static void notifyClients(poolConnecter *poolConnObj);
 
     static void *startClientListen(void *port);
     static bool startNewPoolConnection(char *url, char *user, char *pass, int poolId);

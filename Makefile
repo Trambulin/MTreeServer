@@ -1,8 +1,8 @@
 output: main.o poolConnecter.o applog.o clientConnecter.o jobManager.o sha256Abstract.o
-	g++ -g main.o poolConnecter.o applog.o clientConnecter.o jobManager.o sha256Abstract.o -ljansson -lcurl -lpthread -o server.out
+	g++ -g -no-pie main.o poolConnecter.o applog.o clientConnecter.o jobManager.o sha256Abstract.o -ljansson -lcurl -lpthread -lmysqlcppconn -o server.out
 
 main.o: main.cpp
-	g++ -g -c main.cpp	#-c means make .o file from .cpp file
+	g++ -I /usr/include/mysql-cppconn-8/jdbc -g -c main.cpp	#-c means make .o file from .cpp file
 
 sha256Abstract.o: sha256Abstract.cpp sha256Abstract.hpp
 	g++ -g -c -std=c++11 sha256Abstract.cpp

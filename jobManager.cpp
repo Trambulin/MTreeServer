@@ -1,6 +1,7 @@
 #include<netinet/in.h>
 //#include<netinet/tcp.h>
 #include<unistd.h>
+#include<cstring>
 #include"jobManager.hpp"
 #include"applog.hpp"
 
@@ -43,7 +44,7 @@ void jobManager::calculateClientRanges()
 }
 
 //it is called by poolConnecter
-void jobManager::notifyClients(char* buffer, size_t length)
+void jobManager::notifyClients(poolConnecter *poolConnObj)
 {
     for(int i=0;i<clients.size();i++){
         if(clients[i]->isDestructible){
@@ -53,7 +54,12 @@ void jobManager::notifyClients(char* buffer, size_t length)
             i--; //client size is reduced, i must be reduced to not miss a client
         }
         else if(!clients[i]->connOver && clients[i]->isReady){
-            clients[i]->sendMessage(buffer, length);
+            size_t msgLength=poolConnObj->tBufL;
+            char *notifyMsg=new char[msgLength];
+            memcpy(notifyMsg,poolConnObj->tBuf,msgLength);
+            //msg is created here from poolConnObj public members
+            clients[i]->sendMessage(notifyMsg, msgLength);
+            delete[] notifyMsg;
         }
     }
 }
