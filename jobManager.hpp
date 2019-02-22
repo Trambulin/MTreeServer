@@ -20,7 +20,7 @@ public:
     static void calculateClientRanges();
     static void notifyClients(poolConnecter *poolConnObj);
 
-    static void *startClientListen(void *port);
+    static void *startClientListen(void *con);
     static bool startNewPoolConnection(char *url, char *user, char *pass, int poolId);
 };
 

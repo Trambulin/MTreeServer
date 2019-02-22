@@ -3,18 +3,22 @@
 #include<string.h>
 #include<unistd.h>
 #include<netinet/tcp.h>
+#include <cppconn/prepared_statement.h>
 //#include<sys/types.h> 
 //#include<sys/socket.h>
 #include"clientConnecter.hpp"
 #include"applog.hpp"
 
-clientConnecter::clientConnecter(int sockfd, in_addr_t cIP)
+pthread_mutex_t clientConnecter::sqlConnectionLock;
+
+clientConnecter::clientConnecter(int sockfd, in_addr_t cIP, sql::Connection *sqlConn)
 {
     connOver=false; halfLength=false; isDestructible=false;
     hashPerSec=0; isReady=false;
     //keepAlive=1; kAIdle=20; kAInterval=5; kACount=3;
     currentContLength=0; fullMContLength=0; recurContLengthSummer=0;
     this->sockfd=sockfd;
+    con=sqlConn;
     pthread_mutex_init(&publicOverLock, NULL);
     pthread_mutex_init(&publicHpSLock, NULL);
     unsigned char ip1=cIP>>24;
@@ -62,9 +66,24 @@ void clientConnecter::registrationMsg()
     std::string user=textUP.substr(0,dividerIndex+1);
     std::string pass=textUP.substr(dividerIndex+1);
     //TODO register user with the above details
+    bool stmtResult=true;
+    pthread_mutex_lock(&sqlConnectionLock);
+    try{
+        sql::PreparedStatement *prep_stmt;
+        prep_stmt = con->prepareStatement("INSERT INTO USERS(users_name, users_password) VALUES (?,?)");
+        prep_stmt->setString(1, user.c_str());
+        prep_stmt->setString(2, pass.c_str());
+        stmtResult = prep_stmt->executeUpdate();
+        delete prep_stmt;
+    }
+    catch (sql::SQLException &e) {
+        applog::log(LOG_ERR,e.what());
+        stmtResult=false;
+    }
+    pthread_mutex_unlock(&sqlConnectionLock);
     char *result=new char[3];
     uint16ToChar2(1,result);
-    if(true)
+    if(stmtResult)
         result[2]=0; //registration success
     else
         result[2]=1; //registration failed
@@ -79,14 +98,44 @@ void clientConnecter::loginMsg()
     std::string user=textUP.substr(0,dividerIndex+1);
     std::string pass=textUP.substr(dividerIndex+1);
     //TODO login user with the above details
+    bool stmtResult=true;
+    pthread_mutex_lock(&sqlConnectionLock);
+    try{
+        sql::PreparedStatement *prep_stmt;
+        sql::ResultSet *res;
+        prep_stmt = con->prepareStatement("SELECT * FROM USERS where users_name=\"?\"");
+        prep_stmt->setString(1, user.c_str());
+        res = prep_stmt->executeQuery();
+        if (res->next()) {
+            std::string passwd=res->getString("users_password");
+            int compRes = passwd.compare(pass);
+            if(compRes==0){
+                stmtResult=true;
+            }
+            else{
+                stmtResult=false;
+            }
+            
+        }
+        else{
+            stmtResult=false;
+        }
+        delete res;
+        delete prep_stmt;
+    }
+    catch (sql::SQLException &e) {
+        applog::log(LOG_ERR,e.what());
+        stmtResult=false;
+    }
+    pthread_mutex_unlock(&sqlConnectionLock);
     char *result=new char[3];
     uint16ToChar2(2,result);
-    if(true)
+    if(stmtResult)
         result[2]=0; //login success
     else
         result[2]=1; //login failed
     sendMessage(result,3);
-    if(true)
+    if(stmtResult)
         askForSpeed();
     delete[] result;
 }

@@ -18,9 +18,9 @@ using namespace std;
 int main(int argc, char** argv)
 {
     char b;
+    sql::Connection *con;
     try {
         sql::Driver *driver;
-        sql::Connection *con;
         sql::Statement *stmt;
         sql::PreparedStatement *prep_stmt;
         sql::ResultSet *res;
@@ -91,7 +91,7 @@ int main(int argc, char** argv)
     int port=27015;
     
     pthread_attr_init(&attrClient);
-    n = pthread_create(&pthClient, &attrClient, jobManager::startClientListen, &port);
+    n = pthread_create(&pthClient, &attrClient, jobManager::startClientListen, &con);
     pthread_attr_destroy(&attrClient);
     if(n) {
         applog::log(LOG_ERR,"jobManager thread create failed");

@@ -64,12 +64,14 @@ void jobManager::notifyClients(poolConnecter *poolConnObj)
     }
 }
 
-void *jobManager::startClientListen(void *port)
+void *jobManager::startClientListen(void *con)
 {
     int sockfd, newsockfd, n;
-    int *sockPort=(int*)port;
+    int port=27015;
+    int *sockPort=&port;
     struct sockaddr_in serv_addr, cli_addr;
     socklen_t clilen;
+    pthread_mutex_init(&clientConnecter::sqlConnectionLock, NULL);
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0){
         applog::log(LOG_ERR,"ERROR opening socket");
@@ -108,7 +110,7 @@ void *jobManager::startClientListen(void *port)
         if (newsockfd < 0){
             applog::log(LOG_ERR,"ERROR on client accept");
         }
-        clients.push_back(new clientConnecter(newsockfd, cli_addr.sin_addr.s_addr));
+        clients.push_back(new clientConnecter(newsockfd, cli_addr.sin_addr.s_addr, (sql::Connection*)con));
         pthread_t pth;
         pthread_attr_t attr;
         pthread_attr_init(&attr);

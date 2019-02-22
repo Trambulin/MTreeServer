@@ -8,7 +8,7 @@ sha256Abstract.o: sha256Abstract.cpp sha256Abstract.hpp
 	g++ -g -c -std=c++11 sha256Abstract.cpp
 
 jobManager.o: jobManager.cpp jobManager.hpp
-	g++ -g -c jobManager.cpp
+	g++ -I /usr/include/mysql-cppconn-8/jdbc -g -c jobManager.cpp
 
 poolConnecter.o: poolConnecter.cpp poolConnecter.hpp
 	g++ -g -c poolConnecter.cpp
@@ -17,7 +17,7 @@ applog.o: applog.cpp applog.hpp
 	g++ -g -c applog.cpp
 
 clientConnecter.o: clientConnecter.cpp clientConnecter.hpp
-	g++ -g -c -std=c++11 clientConnecter.cpp
+	g++ -I /usr/include/mysql-cppconn-8/jdbc -g -c -std=c++11 clientConnecter.cpp
 
 clean:
 	rm *.o server.out

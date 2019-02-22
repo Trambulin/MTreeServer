@@ -3,6 +3,7 @@
 
 #include<netinet/in.h>
 #include<pthread.h>
+#include "mysql_connection.h"
 
 class clientConnecter
 {
@@ -14,6 +15,7 @@ private:
     char clientIP[16];
     char buffer[256];
     char* fullMsgContainer;
+    sql::Connection *con;
 
     inline void uint16ToChar2(uint16_t src, char dest[2]);
     inline uint16_t char2ToUint16(char src[2]);
@@ -25,7 +27,8 @@ private:
     void bufferCopy(int bufLength, int startIndex, int actualBufLength);
 
 public:
-    clientConnecter(int sockfd, in_addr_t cIP);
+    static pthread_mutex_t sqlConnectionLock;
+    clientConnecter(int sockfd, in_addr_t cIP, sql::Connection *sqlConn);
     ~clientConnecter();
 
     void sendHashingDatas(uint8_t algIndex, int jobIndex, uint32_t *datas, int datasLength, uint32_t minVal, uint32_t maxVal, uint32_t target);
