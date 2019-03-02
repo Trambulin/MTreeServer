@@ -75,7 +75,7 @@ int main(int argc, char** argv)
     sleep(1);
 //}
     //cin >> b;
-    return 0;
+    //return 0;
 
     applog::init();
     applog::logFile.open("test.txt"); //emptying file

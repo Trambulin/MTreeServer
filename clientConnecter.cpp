@@ -57,7 +57,7 @@ void clientConnecter::askForSpeed()
 {
     char askSpeedMsg[3];
     uint16ToChar2(3,askSpeedMsg);
-    askSpeedMsg[2]=0; //scrypt algInd
+    askSpeedMsg[2]=1; //scrypt algInd
     sendMessage(askSpeedMsg, 3);
 }
 
@@ -115,7 +115,7 @@ void clientConnecter::loginMsg()
         driver = get_driver_instance();
         con = driver->connect("tcp://127.0.0.1:3306", "root", "hhhh");
         con->setSchema("testDb");
-        prep_stmt = con->prepareStatement("SELECT * FROM USERS where users_name=\"?\"");
+        prep_stmt = con->prepareStatement("SELECT * FROM USERS where users_name=?");
         prep_stmt->setString(1, user.c_str());
         res = prep_stmt->executeQuery();
         if (res->next()) {
@@ -167,7 +167,7 @@ void clientConnecter::processSpeedInfo()
     tHashSpeed += ((uint32_t)((unsigned char)fullMsgContainer[4])) << 16;
     tHashSpeed += ((uint32_t)((unsigned char)fullMsgContainer[5])) << 8;
     tHashSpeed += (uint32_t)((unsigned char)fullMsgContainer[6]);
-    if(algIndex == 0){ //scrypt
+    if(algIndex == 1){ //scrypt
         pthread_mutex_lock(&publicHpSLock);
         hashPerSec=tHashSpeed;
         isReady=true;
@@ -435,6 +435,7 @@ void* clientConnecter::initClient(void *clientConn)
         std::string closeConnDate=dateSS.str();
         bool stmtResult=true;
         uint32_t userId;
+        pthread_mutex_lock(&sqlConnectionLock);
         try{
             sql::Connection *con;
             sql::Driver *driver;
@@ -443,7 +444,7 @@ void* clientConnecter::initClient(void *clientConn)
             driver = get_driver_instance();
             con = driver->connect("tcp://127.0.0.1:3306", "root", "hhhh");
             con->setSchema("testDb");
-            prep_stmt = con->prepareStatement("SELECT users_id FROM USERS where users_name=\"?\"");
+            prep_stmt = con->prepareStatement("SELECT users_id FROM USERS where users_name=?");
             prep_stmt->setString(1, tClient->userName.c_str());
             res = prep_stmt->executeQuery();
             if (res->next()) {
@@ -452,7 +453,7 @@ void* clientConnecter::initClient(void *clientConn)
             else{
                 stmtResult=false;
             }
-            prep_stmt = con->prepareStatement("INSERT INTO CONNECTIONS(connections_user_id,connections_curr_id,connections_begin_date,connections_end_date,connections_performance) VALUES (?,?,\"?\",\"?\",?");
+            prep_stmt = con->prepareStatement("INSERT INTO CONNECTIONS(connections_user_id,connections_curr_id,connections_begin_date,connections_end_date,connections_performance) VALUES (?,?,?,?,?)");
             prep_stmt->setInt(1, userId);
             prep_stmt->setInt(2, tClient->currId);
             prep_stmt->setString(3, tClient->startConnDate.c_str());
@@ -469,6 +470,7 @@ void* clientConnecter::initClient(void *clientConn)
             applog::log(LOG_ERR,e.what());
             stmtResult=false;
         }
+        pthread_mutex_unlock(&sqlConnectionLock);
     }
     pthread_mutex_lock(&tClient->publicOverLock);
     tClient->connOver=true;

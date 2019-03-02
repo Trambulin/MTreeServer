@@ -2,6 +2,7 @@
 #define CLIENTCONNECTER_H
 
 #include<string.h>
+#include<string>
 #include<netinet/in.h>
 #include<pthread.h>
 
@@ -13,10 +14,10 @@ private:
     bool halfLength;
     int16_t fullMContLength, recurContLengthSummer, currentContLength;
     //int keepAlive, kAIdle, kAInterval, kACount;
-    std::string userName, startConnDate;
     char clientIP[16];
     char buffer[256];
     char* fullMsgContainer;
+    std::string userName, startConnDate;
 
     inline void uint16ToChar2(uint16_t src, char dest[2]);
     inline uint16_t char2ToUint16(char src[2]);
