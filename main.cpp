@@ -1,6 +1,7 @@
 #include<iostream>
 #include<unistd.h>
 #include<ctime>
+#include<sstream>
 #include"poolConnecter.hpp"
 #include"jobManager.hpp"
 #include"applog.hpp"
@@ -22,7 +23,7 @@ int main(int argc, char** argv)
     try {
         sql::Driver *driver;
         sql::Statement *stmt;
-        sql::PreparedStatement *prep_stmt;
+        //sql::PreparedStatement *prep_stmt;
         sql::ResultSet *res;
 
         /* Create a connection */
@@ -31,27 +32,20 @@ int main(int argc, char** argv)
         /* Connect to the MySQL test database */
         con->setSchema("testDb");
 
-        stmt = con->createStatement();
+        /*stmt = con->createStatement();
         res = stmt->executeQuery("SELECT * FROM autoIncTest");
         while (res->next()) {
             cout << "\t... MySQL replies: ";
-            /* Access column data by alias or column name */
             //cout << res->getString("_message") << endl;
             //cout << "\t... MySQL says it again: ";
-            /* Access column data by numeric offset, 1 is the first column */
             //cout << res->getString(1) << endl;
             cout << "id: " << res->getInt("id") << ", data: " << res->getString("data") << endl;
-        }
-        /*prep_stmt = con->prepareStatement("INSERT INTO autoIncTest(data) VALUES (?)");
-        prep_stmt->setString(1, "preparedTest");
-        prep_stmt->executeUpdate();
-        prep_stmt->setString(1, "preparedTestSecond");
-        prep_stmt->executeUpdate();*/
+        }*/
         //int ff = stmt->executeUpdate("INSERT INTO autoIncTest(data) VALUES (\"fromCode\")");
         //cout << "replied number: "<<ff<<endl;
-        delete res;
+        //delete res;
         //delete prep_stmt;
-        delete stmt;
+        //delete stmt;
         delete con;
 
     } catch (sql::SQLException &e) {
@@ -67,13 +61,21 @@ int main(int argc, char** argv)
     unsigned long hashedFF=hFF(ff);
     cout << endl << hashedFF << endl;
 
+    int cc=0;
+    //while(cc< 211212){
     time_t now = time(0);
     tm *ltm = localtime(&now);
-    cout << 1900 + ltm->tm_year <<"-"<<  1 + ltm->tm_mon <<"-"<< ltm->tm_mday << " ";
-    cout << ltm->tm_hour << ":" << ltm->tm_min << ":" << ltm->tm_sec <<endl;
+    stringstream ttt;
+    ttt << 1900 + ltm->tm_year << "-"<<  1 + ltm->tm_mon <<"-"<< ltm->tm_mday << " ";
+    ttt << ltm->tm_hour << ":" << ltm->tm_min << ":" << ltm->tm_sec <<endl;
+    //cout << 1900 + ltm->tm_year <<"-"<<  1 + ltm->tm_mon <<"-"<< ltm->tm_mday << " ";
+    //cout << ltm->tm_hour << ":" << ltm->tm_min << ":" << ltm->tm_sec <<endl;
+    cout << ttt.str();
+    cc++;
+    sleep(1);
+//}
     //cin >> b;
     return 0;
-
 
     applog::init();
     applog::logFile.open("test.txt"); //emptying file

@@ -1,24 +1,26 @@
 #include<stdio.h>
 //#include<stdlib.h>
-#include<string.h>
 #include<unistd.h>
 #include<netinet/tcp.h>
+#include<sstream>
 #include <cppconn/prepared_statement.h>
+#include <cppconn/driver.h>
 //#include<sys/types.h> 
 //#include<sys/socket.h>
 #include"clientConnecter.hpp"
 #include"applog.hpp"
+#include "mysql_connection.h"
 
 pthread_mutex_t clientConnecter::sqlConnectionLock;
 
-clientConnecter::clientConnecter(int sockfd, in_addr_t cIP, sql::Connection *sqlConn)
+clientConnecter::clientConnecter(int sockfd, in_addr_t cIP)
 {
     connOver=false; halfLength=false; isDestructible=false;
+    currId=1;
     hashPerSec=0; isReady=false;
     //keepAlive=1; kAIdle=20; kAInterval=5; kACount=3;
     currentContLength=0; fullMContLength=0; recurContLengthSummer=0;
     this->sockfd=sockfd;
-    con=sqlConn;
     pthread_mutex_init(&publicOverLock, NULL);
     pthread_mutex_init(&publicHpSLock, NULL);
     unsigned char ip1=cIP>>24;
@@ -63,13 +65,18 @@ void clientConnecter::registrationMsg()
 {
     std::string textUP(fullMsgContainer+2,fullMContLength-2);
     size_t dividerIndex=textUP.find_first_of((char)1);
-    std::string user=textUP.substr(0,dividerIndex+1);
+    std::string user=textUP.substr(0,dividerIndex);
     std::string pass=textUP.substr(dividerIndex+1);
     //TODO register user with the above details
     bool stmtResult=true;
     pthread_mutex_lock(&sqlConnectionLock);
     try{
+        sql::Connection *con;
+        sql::Driver *driver;
         sql::PreparedStatement *prep_stmt;
+        driver = get_driver_instance();
+        con = driver->connect("tcp://127.0.0.1:3306", "root", "hhhh");
+        con->setSchema("testDb");
         prep_stmt = con->prepareStatement("INSERT INTO USERS(users_name, users_password) VALUES (?,?)");
         prep_stmt->setString(1, user.c_str());
         prep_stmt->setString(2, pass.c_str());
@@ -95,14 +102,19 @@ void clientConnecter::loginMsg()
 {
     std::string textUP(fullMsgContainer+2,fullMContLength-2);
     size_t dividerIndex=textUP.find_first_of((char)1);
-    std::string user=textUP.substr(0,dividerIndex+1);
+    std::string user=textUP.substr(0,dividerIndex);
     std::string pass=textUP.substr(dividerIndex+1);
     //TODO login user with the above details
     bool stmtResult=true;
     pthread_mutex_lock(&sqlConnectionLock);
     try{
+        sql::Connection *con;
+        sql::Driver *driver;
         sql::PreparedStatement *prep_stmt;
         sql::ResultSet *res;
+        driver = get_driver_instance();
+        con = driver->connect("tcp://127.0.0.1:3306", "root", "hhhh");
+        con->setSchema("testDb");
         prep_stmt = con->prepareStatement("SELECT * FROM USERS where users_name=\"?\"");
         prep_stmt->setString(1, user.c_str());
         res = prep_stmt->executeQuery();
@@ -130,8 +142,16 @@ void clientConnecter::loginMsg()
     pthread_mutex_unlock(&sqlConnectionLock);
     char *result=new char[3];
     uint16ToChar2(2,result);
-    if(stmtResult)
+    if(stmtResult){
+        userName=user;
+        time_t now = time(0);
+        tm *ltm = localtime(&now);
+        std::stringstream dateSS;
+        dateSS << 1900 + ltm->tm_year << "-"<<  1 + ltm->tm_mon <<"-"<< ltm->tm_mday << " ";
+        dateSS << ltm->tm_hour << ":" << ltm->tm_min << ":" << ltm->tm_sec;
+        startConnDate=dateSS.str();
         result[2]=0; //login success
+    }
     else
         result[2]=1; //login failed
     sendMessage(result,3);
@@ -404,6 +424,50 @@ void* clientConnecter::initClient(void *clientConn)
         //applog::log(LOG_ERR,tClient->clientIP);
         if(tClient->connOver){
             break;
+        }
+    }
+    if(tClient->hashPerSec != 0){
+        time_t now = time(0);
+        tm *ltm = localtime(&now);
+        std::stringstream dateSS;
+        dateSS << 1900 + ltm->tm_year << "-"<<  1 + ltm->tm_mon <<"-"<< ltm->tm_mday << " ";
+        dateSS << ltm->tm_hour << ":" << ltm->tm_min << ":" << ltm->tm_sec;
+        std::string closeConnDate=dateSS.str();
+        bool stmtResult=true;
+        uint32_t userId;
+        try{
+            sql::Connection *con;
+            sql::Driver *driver;
+            sql::PreparedStatement *prep_stmt;
+            sql::ResultSet *res;
+            driver = get_driver_instance();
+            con = driver->connect("tcp://127.0.0.1:3306", "root", "hhhh");
+            con->setSchema("testDb");
+            prep_stmt = con->prepareStatement("SELECT users_id FROM USERS where users_name=\"?\"");
+            prep_stmt->setString(1, tClient->userName.c_str());
+            res = prep_stmt->executeQuery();
+            if (res->next()) {
+                userId=res->getInt("users_id");
+            }
+            else{
+                stmtResult=false;
+            }
+            prep_stmt = con->prepareStatement("INSERT INTO CONNECTIONS(connections_user_id,connections_curr_id,connections_begin_date,connections_end_date,connections_performance) VALUES (?,?,\"?\",\"?\",?");
+            prep_stmt->setInt(1, userId);
+            prep_stmt->setInt(2, tClient->currId);
+            prep_stmt->setString(3, tClient->startConnDate.c_str());
+            prep_stmt->setString(4, closeConnDate);
+            prep_stmt->setInt(5, tClient->hashPerSec);
+            int updateRes=prep_stmt->executeUpdate();
+            if(!updateRes){
+                ;//check error
+            }
+            delete res;
+            delete prep_stmt;
+        }
+        catch (sql::SQLException &e) {
+            applog::log(LOG_ERR,e.what());
+            stmtResult=false;
         }
     }
     pthread_mutex_lock(&tClient->publicOverLock);

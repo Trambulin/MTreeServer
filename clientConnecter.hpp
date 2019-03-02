@@ -1,21 +1,22 @@
 #ifndef CLIENTCONNECTER_H
 #define CLIENTCONNECTER_H
 
+#include<string.h>
 #include<netinet/in.h>
 #include<pthread.h>
-#include "mysql_connection.h"
 
 class clientConnecter
 {
 private:
     int sockfd;
+    uint32_t currId;
     bool halfLength;
     int16_t fullMContLength, recurContLengthSummer, currentContLength;
     //int keepAlive, kAIdle, kAInterval, kACount;
+    std::string userName, startConnDate;
     char clientIP[16];
     char buffer[256];
     char* fullMsgContainer;
-    sql::Connection *con;
 
     inline void uint16ToChar2(uint16_t src, char dest[2]);
     inline uint16_t char2ToUint16(char src[2]);
@@ -28,7 +29,7 @@ private:
 
 public:
     static pthread_mutex_t sqlConnectionLock;
-    clientConnecter(int sockfd, in_addr_t cIP, sql::Connection *sqlConn);
+    clientConnecter(int sockfd, in_addr_t cIP);
     ~clientConnecter();
 
     void sendHashingDatas(uint8_t algIndex, int jobIndex, uint32_t *datas, int datasLength, uint32_t minVal, uint32_t maxVal, uint32_t target);

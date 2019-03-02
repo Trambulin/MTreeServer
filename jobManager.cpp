@@ -110,7 +110,7 @@ void *jobManager::startClientListen(void *con)
         if (newsockfd < 0){
             applog::log(LOG_ERR,"ERROR on client accept");
         }
-        clients.push_back(new clientConnecter(newsockfd, cli_addr.sin_addr.s_addr, (sql::Connection*)con));
+        clients.push_back(new clientConnecter(newsockfd, cli_addr.sin_addr.s_addr));
         pthread_t pth;
         pthread_attr_t attr;
         pthread_attr_init(&attr);
