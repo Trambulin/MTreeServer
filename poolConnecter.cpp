@@ -1089,7 +1089,35 @@ void* poolConnecter::poolMainMethod(void *poolThreadPar)
 				justTest[indi]=poolConnObject->jobId[indi-ind];
 			}
 			//if works i can change it to datas to send
+			delete[] justTest;
 			poolConnObject->prepareWorkDatas();
+			poolConnObject->tBufL=2+5+80+32+8;
+			poolConnObject->tBuf=new char[poolConnObject->tBufL];
+			justTest=poolConnObject->tBuf;
+			justTest[0]=0;justTest[1]=4;
+			for(ind=2;ind<strlen(poolConnObject->wJobId)+2;ind++){
+				justTest[ind]=poolConnObject->wJobId[ind-2];
+			}
+			for(int i=0;i<20;i++){
+				char num1=poolConnObject->wData[i]>>24;
+				char num2=poolConnObject->wData[i]>>16;
+				char num3=poolConnObject->wData[i]>>8;
+				char num4=poolConnObject->wData[i];
+				justTest[ind++]=num1;justTest[ind++]=num2;
+				justTest[ind++]=num3;justTest[ind++]=num4;
+			}
+			for(int i=0;i<8;i++){
+				char tar1=poolConnObject->wTarget[i]>>24;
+				char tar2=poolConnObject->wTarget[i]>>16;
+				char tar3=poolConnObject->wTarget[i]>>8;
+				char tar4=poolConnObject->wTarget[i];
+				justTest[ind++]=tar1;justTest[ind++]=tar2;
+				justTest[ind++]=tar3;justTest[ind++]=tar4;
+			}
+			justTest[ind++]=0;justTest[ind++]=0;
+			justTest[ind++]=0;justTest[ind++]=0;
+			justTest[ind++]=210;justTest[ind++]=255;
+			justTest[ind++]=255;justTest[ind++]=255;
 			tParam->notifyFunc(poolConnObject);
 			delete[] justTest;
 		}

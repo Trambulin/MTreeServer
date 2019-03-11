@@ -211,6 +211,9 @@ void clientConnecter::messageHandler()
             applog::log(LOG_NOTICE,"Message from one of the client:");
             applog::log(LOG_NOTICE,logMsg);
         }
+        else if(msgType == 10){ //speed HashPerSec
+            connOver=true;
+        }
 
         //char* correctDisplay=new char[fullMContLength+1];
         //memcpy(correctDisplay,fullMsgContainer,fullMContLength);

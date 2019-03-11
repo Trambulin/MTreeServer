@@ -37,7 +37,7 @@ void jobManager::calculateClientRanges()
         else if(!clients[i]->connOver && clients[i]->isReady){
             double powerRate=((double)clients[i]->hashPerSec)/((double)hashSum);
             double calcRange=lastToCheck*powerRate;
-            clients[i]->sendHashingDatas(0,0,0,0,(uint32_t)maxValTemp,(uint32_t)(maxValTemp+calcRange),0);
+            //clients[i]->sendHashingDatas(0,0,0,0,(uint32_t)maxValTemp,(uint32_t)(maxValTemp+calcRange),0);
             maxValTemp+=calcRange;
         }
     }
@@ -134,8 +134,8 @@ bool jobManager::startNewPoolConnection(char *url, char *user, char *pass, int p
     pthread_attr_t attr;
     poolThreadParam *tParam;
     poolConnecter *somePool;
-    //somePool = new poolConnecter(url, user, pass, poolId);
-    somePool = new poolConnecter();
+    somePool = new poolConnecter(url, user, pass, poolId);
+    //somePool = new poolConnecter();
     tParam=new poolThreadParam();
     tParam->poolConnObjRef=somePool;
     tParam->notifyFunc=notifyClients;
